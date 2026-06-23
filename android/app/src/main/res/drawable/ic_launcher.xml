@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+
+    <!--
+        Violet hex-shield logo — legacy launcher icon (48×48 viewport).
+        Matches the splash screen AppLogo and the adaptive foreground.
+    -->
+
+    <!-- Dark background -->
+    <path
+        android:fillColor="#1A0040"
+        android:pathData="M0,0 L48,0 L48,48 L0,48 Z" />
+
+    <!-- 1. Outer hex rim -->
+    <path
+        android:fillColor="#7B2FBE"
+        android:pathData="
+            M22,6
+            L38,15
+            L38,33
+            L22,42
+            L6,33
+            L6,15
+            Z" />
+
+    <!-- 2. Dark gap ring -->
+    <path
+        android:fillColor="#3D0D7A"
+        android:pathData="
+            M22,9
+            L35,16.5
+            L35,31.5
+            L22,39
+            L9,31.5
+            L9,16.5
+            Z" />
+
+    <!-- 3. Inner shield -->
+    <path
+        android:fillColor="#5A1A9E"
+        android:pathData="
+            M22,10.5
+            L34,17.5
+            L34,30.5
+            L22,37.5
+            L10,30.5
+            L10,17.5
+            Z" />
+
+    <!-- 4. Circle emblem outer ring -->
+    <path
+        android:fillColor="#8B3FD8"
+        android:pathData="M22,16 A8,8 0 1,1 21.99,16 Z" />
+
+    <!-- Circle dark fill -->
+    <path
+        android:fillColor="#3D0D7A"
+        android:pathData="M22,17.5 A6.5,6.5 0 1,1 21.99,17.5 Z" />
+
+    <!-- 5. Bubble tail -->
+    <path
+        android:fillColor="#8B3FD8"
+        android:pathData="M18,25.5 L15.5,29 L21.5,25.5 Z" />
+
+    <!-- 6. Checkmark -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#BB86FC"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M17.5,24.5 L20.5,27.5 L27,21" />
+
+    <!-- 7. Arrow shaft -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#9B59E8"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round"
+        android:pathData="M20,31 L34,17" />
+
+    <!-- 8. Arrowhead -->
+    <path
+        android:fillColor="#9B59E8"
+        android:pathData="M34,17 L29,18 L32.5,21.5 Z" />
+
+</vector>

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+        Violet hex-shield logo matching the splash screen AppLogo.
+        Canvas 108×108. Safe zone = inner 72dp (18dp inset each side).
+        All shapes kept inside ~18–90 range so the icon looks good
+        both as adaptive (cropped circle/squircle) and legacy (full square).
+
+        Layers (bottom to top):
+          1. Outer hex rim  (#7B2FBE)
+          2. Dark gap ring  (#3D0D7A)  — drawn as slightly smaller hex
+          3. Inner shield   (#6B21B0)
+          4. Circle emblem  (#8B3FD8)
+          5. Bubble tail    (#8B3FD8)
+          6. Orbit ring stroke (#BB86FC, partial alpha)
+          7. Checkmark stroke (#BB86FC)
+          8. Arrow shaft + head (#9B59E8)
+    -->
+
+    <!-- 1. Outer hex rim -->
+    <!-- Flat-top hexagon, centre ~(47,57), circumradius ~28 -->
+    <path
+        android:fillColor="#7B2FBE"
+        android:pathData="
+            M47,29
+            L71.2,43
+            L71.2,71
+            L47,85
+            L22.8,71
+            L22.8,43
+            Z" />
+
+    <!-- 2. Dark gap (inner hex cutout to form the ring) -->
+    <path
+        android:fillColor="#3D0D7A"
+        android:pathData="
+            M47,33.5
+            L67.6,45.2
+            L67.6,68.8
+            L47,80.5
+            L26.4,68.8
+            L26.4,45.2
+            Z" />
+
+    <!-- 3. Inner shield fill -->
+    <path
+        android:fillColor="#5A1A9E"
+        android:pathData="
+            M47,35.5
+            L66,46.5
+            L66,67.5
+            L47,78.5
+            L28,67.5
+            L28,46.5
+            Z" />
+
+    <!-- 4. Circle emblem background -->
+    <path
+        android:fillColor="#8B3FD8"
+        android:pathData="M47,43 A14,14 0 1,1 46.99,43 Z" />
+    <!-- Filled dark centre of circle -->
+    <path
+        android:fillColor="#3D0D7A"
+        android:pathData="M47,45.5 A11.5,11.5 0 1,1 46.99,45.5 Z" />
+
+    <!-- 5. Chat-bubble tail (small triangle bottom-left of circle) -->
+    <path
+        android:fillColor="#8B3FD8"
+        android:pathData="M41,56 L37,62 L46,56 Z" />
+
+    <!-- 6. Orbit ring (thin circle stroke around emblem) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#BB86FC"
+        android:strokeWidth="1.5"
+        android:strokeAlpha="0.5"
+        android:pathData="M47,41 A16,16 0 1,1 46.99,41 Z" />
+
+    <!-- 7. Checkmark inside circle -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#BB86FC"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M40,57 L44.5,61.5 L55,51" />
+
+    <!-- 8a. Arrow shaft (diagonal, bottom-left to top-right) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#9B59E8"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M43,68 L72,39" />
+
+    <!-- 8b. Arrowhead at (72,39) pointing up-right ~45° -->
+    <path
+        android:fillColor="#9B59E8"
+        android:pathData="M72,39 L63,40.5 L70.5,48 Z" />
+
+</vector>
