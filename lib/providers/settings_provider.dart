@@ -97,6 +97,27 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     state = s;
     // Dark mode is UI-only — no need to sync to native
   }
+
+  Future<void> toggleAiReplyEnabled() async {
+    await _repository.toggleAiReplyEnabled();
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateGroqApiKey(String apiKey) async {
+    await _repository.updateGroqApiKey(apiKey);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateAiSystemPrompt(String prompt) async {
+    await _repository.updateAiSystemPrompt(prompt);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
 }
 
 /// Provider for permission status

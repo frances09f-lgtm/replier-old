@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/settings_provider.dart';
@@ -111,6 +113,56 @@ class SettingsScreen extends ConsumerWidget {
               ref.read(appSettingsProvider.notifier).toggleIgnoreGroupChats();
             },
           ),
+
+          const SizedBox(height: 24),
+
+          // AI Reply section
+          Text(
+            'AI Auto-Reply',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Uses Groq (free) to generate replies when no rule matches',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          SwitchListTile(
+            title: const Text('AI Auto-Reply'),
+            subtitle: const Text('Reply with AI when no rule matches'),
+            value: settings.aiReplyEnabled,
+            onChanged: (_) {
+              ref.read(appSettingsProvider.notifier).toggleAiReplyEnabled();
+            },
+          ),
+
+          if (settings.aiReplyEnabled) ...[
+            ListTile(
+              title: const Text('Groq API Key'),
+              subtitle: Text(
+                settings.groqApiKey.isEmpty
+                    ? 'Not set (get free key at console.groq.com)'
+                    : '${settings.groqApiKey.substring(0, 8)}...',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showApiKeyDialog(context, ref, settings.groqApiKey),
+            ),
+            ListTile(
+              title: const Text('System Prompt'),
+              subtitle: Text(
+                settings.aiSystemPrompt.length > 50
+                    ? '${settings.aiSystemPrompt.substring(0, 50)}...'
+                    : settings.aiSystemPrompt,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showSystemPromptDialog(context, ref, settings.aiSystemPrompt),
+            ),
+          ],
 
           const SizedBox(height: 24),
 
@@ -236,6 +288,168 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showApiKeyDialog(BuildContext context, WidgetRef ref, String currentKey) {
+    final controller = TextEditingController(text: currentKey);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Groq API Key'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'gsk_...',
+            labelText: 'API Key',
+          ),
+          obscureText: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final key = controller.text.trim();
+              if (key.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter an API key first')),
+                );
+                return;
+              }
+              Navigator.pop(context);
+              await _testApiKey(context, key);
+            },
+            child: const Text('Test'),
+          ),
+          TextButton(
+            onPressed: () {
+              ref.read(appSettingsProvider.notifier).updateGroqApiKey(controller.text.trim());
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _testApiKey(BuildContext context, String apiKey) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final client = HttpClient();
+      final request = await client.postUrl(
+        Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+      );
+      request.headers.set('Authorization', 'Bearer $apiKey');
+      request.headers.set('Content-Type', 'application/json');
+      request.write(jsonEncode({
+        'model': 'llama-3.3-70b-versatile',
+        'messages': [
+          {'role': 'user', 'content': 'Say "API test successful" in exactly 3 words.'}
+        ],
+        'max_tokens': 20,
+      }));
+
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      client.close();
+
+      if (context.mounted) Navigator.pop(context); // dismiss loading
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(body);
+        final reply = json['choices'][0]['message']['content'].trim();
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+              title: const Text('API Working!'),
+              content: Text('AI replied: "$reply"'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      } else {
+        final error = jsonDecode(body);
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              icon: const Icon(Icons.error, color: Colors.red, size: 48),
+              title: const Text('API Error'),
+              content: Text('Status ${response.statusCode}: ${error['error']['message'] ?? 'Unknown error'}'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) Navigator.pop(context); // dismiss loading
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            icon: const Icon(Icons.error, color: Colors.red, size: 48),
+            title: const Text('Connection Failed'),
+            content: Text('Could not reach Groq API:\n$e'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  void _showSystemPromptDialog(BuildContext context, WidgetRef ref, String currentPrompt) {
+    final controller = TextEditingController(text: currentPrompt);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('AI System Prompt'),
+        content: TextField(
+          controller: controller,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Instructions for how the AI should reply...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              ref.read(appSettingsProvider.notifier).updateAiSystemPrompt(controller.text.trim());
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
   }

@@ -33,6 +33,15 @@ class AppSettings extends HiveObject {
   @HiveField(7)
   DateTime lastUpdated;
 
+  @HiveField(10)
+  bool aiReplyEnabled;
+
+  @HiveField(11)
+  String groqApiKey;
+
+  @HiveField(12)
+  String aiSystemPrompt;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
@@ -42,6 +51,9 @@ class AppSettings extends HiveObject {
     this.preventDuplicateReplies = true,
     this.ignoreGroupChats = true,
     this.darkMode = false,
+    this.aiReplyEnabled = false,
+    this.groqApiKey = '',
+    this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
     required this.lastUpdated,
   });
 
@@ -56,6 +68,9 @@ class AppSettings extends HiveObject {
       'preventDuplicateReplies': preventDuplicateReplies,
       'ignoreGroupChats': ignoreGroupChats,
       'darkMode': darkMode,
+      'aiReplyEnabled': aiReplyEnabled,
+      'groqApiKey': groqApiKey,
+      'aiSystemPrompt': aiSystemPrompt,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -71,6 +86,9 @@ class AppSettings extends HiveObject {
       preventDuplicateReplies: json['preventDuplicateReplies'] ?? true,
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
+      aiReplyEnabled: json['aiReplyEnabled'] ?? false,
+      groqApiKey: json['groqApiKey'] ?? '',
+      aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -85,6 +103,9 @@ class AppSettings extends HiveObject {
     bool? preventDuplicateReplies,
     bool? ignoreGroupChats,
     bool? darkMode,
+    bool? aiReplyEnabled,
+    String? groqApiKey,
+    String? aiSystemPrompt,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -96,6 +117,9 @@ class AppSettings extends HiveObject {
       preventDuplicateReplies: preventDuplicateReplies ?? this.preventDuplicateReplies,
       ignoreGroupChats: ignoreGroupChats ?? this.ignoreGroupChats,
       darkMode: darkMode ?? this.darkMode,
+      aiReplyEnabled: aiReplyEnabled ?? this.aiReplyEnabled,
+      groqApiKey: groqApiKey ?? this.groqApiKey,
+      aiSystemPrompt: aiSystemPrompt ?? this.aiSystemPrompt,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

@@ -26,6 +26,10 @@ class AppConstants {
   static const bool defaultPreventDuplicateReplies = true;
   static const bool defaultIgnoreGroupChats = true;
 
+  // AI defaults
+  static const bool defaultAiReplyEnabled = false;
+  static const String defaultAiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.';
+
   // Storage limits
   static const int maxLogs = 1000;
 }

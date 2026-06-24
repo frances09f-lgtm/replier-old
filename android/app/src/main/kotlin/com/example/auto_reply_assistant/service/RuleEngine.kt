@@ -149,9 +149,19 @@ class RuleEngine(private val context: Context) {
 
     /** Check if a message was sent by this app (self-reply guard) */
     fun isSelfSentMessage(message: String): Boolean {
-        val rules = getEnabledRules()
         val lower = message.trim().lowercase()
-        return rules.any { it.replyText.trim().lowercase() == lower }
+        // Check against rule reply texts
+        val rules = getEnabledRules()
+        if (rules.any { it.replyText.trim().lowercase() == lower }) {
+            Log.d(TAG, "isSelfSentMessage: matched rule reply text")
+            return true
+        }
+        // Check against all sent replies (including AI-generated)
+        if (lower in sentReplyTexts) {
+            Log.d(TAG, "isSelfSentMessage: matched previously sent reply text")
+            return true
+        }
+        return false
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -222,10 +232,43 @@ class RuleEngine(private val context: Context) {
         return prefs.getBoolean(KEY_PREVENT_DUPLICATES, true)
     }
 
+    // ── AI Settings ───────────────────────────────────────────────────────
+
+    fun isAiReplyEnabled(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optBoolean("aiReplyEnabled", false)
+        } catch (_: Exception) {}
+        return prefs.getBoolean("ai_reply_enabled", false)
+    }
+
+    fun getGroqApiKey(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("groqApiKey", "")
+        } catch (_: Exception) {}
+        return prefs.getString("groq_api_key", "") ?: ""
+    }
+
+    fun getAiSystemPrompt(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("aiSystemPrompt",
+                "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.")
+        } catch (_: Exception) {}
+        return prefs.getString("ai_system_prompt",
+            "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.") ?: ""
+    }
+
     // ── Duplicate tracking (in-memory, resets on service restart) ────────────
 
     private val recentReplies = mutableListOf<Triple<String, String, Long>>()
     private val dedupeWindowMs = 5 * 60 * 1000L // 5 minutes
+
+    // All reply texts this app has sent (including AI replies), to detect self-sent messages
+    private val sentReplyTexts = mutableSetOf<String>()
+    // Track sent messages with timestamps for cleanup
+    private val sentReplyTimestamps = mutableListOf<Pair<String, Long>>()
 
     fun wasReplyRecentlySent(sender: String, replyText: String): Boolean {
         val now = System.currentTimeMillis()
@@ -235,6 +278,16 @@ class RuleEngine(private val context: Context) {
 
     fun recordReplySent(sender: String, replyText: String) {
         recentReplies.add(Triple(sender, replyText, System.currentTimeMillis()))
+        // Track the reply text for self-detection
+        sentReplyTexts.add(replyText.trim().lowercase())
+        sentReplyTimestamps.add(Pair(replyText.trim().lowercase(), System.currentTimeMillis()))
+        // Cleanup old entries (keep last 10 minutes of sent replies)
+        val cutoff = System.currentTimeMillis() - 10 * 60 * 1000L
+        sentReplyTimestamps.removeAll { it.second < cutoff }
+        sentReplyTexts.retainAll { text ->
+            sentReplyTimestamps.any { it.first == text }
+        }
+        Log.d(TAG, "recordReplySent: tracked ${sentReplyTexts.size} sent reply texts")
     }
 
     // ── Write helpers (called from Flutter sync via MethodChannel) ────────────
@@ -254,9 +307,7 @@ class RuleEngine(private val context: Context) {
     fun saveSettings(json: String) {
         try {
             val obj = JSONObject(json)
-            // Write to file
             File(filesDir(), SETTINGS_FILE).writeText(json)
-            // Write to SharedPreferences
             prefs.edit()
                 .putBoolean(KEY_MASTER_ENABLED, obj.optBoolean("masterEnabled", true))
                 .putBoolean(KEY_WHATSAPP_ENABLED, obj.optBoolean("whatsappEnabled", true))
@@ -265,6 +316,10 @@ class RuleEngine(private val context: Context) {
                 .putInt(KEY_MIN_REPLY_DELAY_SECONDS, obj.optInt("minReplyDelaySeconds", 0))
                 .putInt(KEY_MAX_REPLY_DELAY_SECONDS, obj.optInt("maxReplyDelaySeconds", 10))
                 .putBoolean(KEY_PREVENT_DUPLICATES, obj.optBoolean("preventDuplicateReplies", true))
+                .putBoolean("ai_reply_enabled", obj.optBoolean("aiReplyEnabled", false))
+                .putString("groq_api_key", obj.optString("groqApiKey", ""))
+                .putString("ai_system_prompt", obj.optString("aiSystemPrompt",
+                    "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational."))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

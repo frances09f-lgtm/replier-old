@@ -103,6 +103,29 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
+  /// Toggle AI reply enabled
+  Future<void> toggleAiReplyEnabled() async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      aiReplyEnabled: !settings.aiReplyEnabled,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Groq API key
+  Future<void> updateGroqApiKey(String apiKey) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(groqApiKey: apiKey);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update AI system prompt
+  Future<void> updateAiSystemPrompt(String prompt) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(aiSystemPrompt: prompt);
+    await updateSettings(updatedSettings);
+  }
+
   /// Check if app is enabled for a specific package
   bool isAppEnabled(String packageName) {
     final settings = getSettings();

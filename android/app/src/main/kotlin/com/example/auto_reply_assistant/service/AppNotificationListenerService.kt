@@ -118,8 +118,31 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
 
         // Rule matching
-        val rule = ruleEngine.findMatchingRule(message) ?: run {
-            Log.d(TAG, "No matching rule for message: '${message.take(50)}'")
+        val rule = ruleEngine.findMatchingRule(message)
+
+        if (rule == null) {
+            // AI fallback: call Groq if enabled
+            if (ruleEngine.isAiReplyEnabled() && ruleEngine.getGroqApiKey().isNotEmpty()) {
+                Log.d(TAG, "No rule matched. Trying AI fallback...")
+                val groqService = GroqAiService()
+                groqService.getAiReply(
+                    apiKey = ruleEngine.getGroqApiKey(),
+                    senderName = title,
+                    incomingMessage = message,
+                    systemPrompt = ruleEngine.getAiSystemPrompt()
+                ) { aiReply ->
+                    if (aiReply != null && aiReply.isNotBlank()) {
+                        val delayMs = ruleEngine.getReplyDelayMs()
+                        mainHandler.postDelayed({
+                            sendReply(sbn.key, title, aiReply)
+                        }, delayMs)
+                    } else {
+                        Log.d(TAG, "AI returned empty reply")
+                    }
+                }
+            } else {
+                Log.d(TAG, "No matching rule for message: '${message.take(50)}'")
+            }
             return
         }
 
