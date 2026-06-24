@@ -13,32 +13,40 @@ final statisticsRepositoryProvider = Provider<StatisticsRepository>((ref) {
   );
 });
 
-/// Provider for dashboard statistics
+/// Provider for dashboard statistics (reactive to logs and rules changes)
 final dashboardStatsProvider = Provider<Map<String, dynamic>>((ref) {
+  // Watch reactive providers so stats update when data changes
+  ref.watch(logsProvider);
+  ref.watch(rulesProvider);
+  ref.watch(appSettingsProvider);
   final repository = ref.watch(statisticsRepositoryProvider);
   return repository.getDashboardStats();
 });
 
-/// Provider for total notifications received
+/// Provider for total notifications received (reactive)
 final totalNotificationsProvider = Provider<int>((ref) {
+  ref.watch(logsProvider);
   final repository = ref.watch(statisticsRepositoryProvider);
   return repository.getTotalNotificationsReceived();
 });
 
-/// Provider for total replies sent
+/// Provider for total replies sent (reactive)
 final totalRepliesProvider = Provider<int>((ref) {
+  ref.watch(logsProvider);
   final repository = ref.watch(statisticsRepositoryProvider);
   return repository.getTotalRepliesSent();
 });
 
-/// Provider for last reply sent
+/// Provider for last reply sent (reactive)
 final lastReplyProvider = Provider<DateTime?>((ref) {
+  ref.watch(logsProvider);
   final repository = ref.watch(statisticsRepositoryProvider);
   return repository.getLastReplySent();
 });
 
-/// Provider for active rules count
+/// Provider for active rules count (reactive)
 final activeRulesCountProvider = Provider<int>((ref) {
+  ref.watch(rulesProvider);
   final repository = ref.watch(statisticsRepositoryProvider);
   return repository.getActiveRulesCount();
 });

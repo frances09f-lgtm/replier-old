@@ -119,177 +119,167 @@ class RuleRepository {
         // Greetings
         createRule(
           triggerText: 'hi',
-          replyText:
-              'Hey! I\'m a bit busy right now, I\'ll get back to you soon. 😊',
+          replyText: 'hey! bit busy rn, will msg u back soon',
           exactMatch: true,
           containsMatch: false,
         ),
         createRule(
           triggerText: 'hello',
-          replyText: 'Hello! Can\'t talk right now, will reply shortly.',
+          replyText: 'heya, cant talk atm, ill hit u up later',
           exactMatch: true,
           containsMatch: false,
         ),
         createRule(
           triggerText: 'hey',
-          replyText: 'Hey! I\'ll get back to you in a bit.',
+          replyText: 'yo! give me a bit, ill reply in a sec',
           exactMatch: true,
           containsMatch: false,
         ),
         createRule(
           triggerText: 'good morning',
-          replyText:
-              'Good morning! 🌅 Hope you have a great day. I\'ll reply soon.',
+          replyText: 'morning! hope u have a good day, ill text u soon',
         ),
         createRule(
           triggerText: 'good afternoon',
-          replyText:
-              'Good afternoon! I\'m currently busy, will respond shortly.',
+          replyText: 'hey! bit swamped rn, talk in a bit',
         ),
         createRule(
           triggerText: 'good evening',
-          replyText: 'Good evening! 🌙 I\'ll get back to you soon.',
+          replyText: 'hey, just saw this. will get back to u in a bit',
         ),
         createRule(
           triggerText: 'good night',
-          replyText: 'Good night! 😴 Sweet dreams. Talk tomorrow!',
+          replyText: 'gn! sleep well, talk tomorrow',
         ),
 
         // Availability
         createRule(
           triggerText: 'are you there',
-          replyText:
-              'Yes, I\'m here! Just a bit occupied at the moment. Give me a few minutes.',
+          replyText: 'yeah im here, just busy atm. gimme a few',
         ),
         createRule(
           triggerText: 'are you free',
-          replyText:
-              'Not right now, but I\'ll be free soon. I\'ll reach out then!',
+          replyText: 'not rn, but will be soon. ill msg u when i am',
         ),
         createRule(
           triggerText: 'are you busy',
-          replyText:
-              'Yes, a little busy at the moment. I\'ll reply as soon as I\'m free.',
+          replyText: 'yeah a bit swamped rn, ill reply when im free',
         ),
         createRule(
           triggerText: 'where are you',
-          replyText:
-              'I\'m around, just occupied right now. I\'ll get back to you soon!',
+          replyText: 'im around, just caught up in smth. brb',
         ),
         createRule(
           triggerText: 'call me',
-          replyText:
-              'Can\'t call right now. I\'ll call you back as soon as possible! 📞',
+          replyText: 'cant call rn, ill ring u back when i can',
         ),
         createRule(
           triggerText: 'can you talk',
-          replyText:
-              'Not at the moment, sorry! I\'ll message you when I\'m free.',
+          replyText: 'not rn sorry, ill text u when im free',
         ),
 
         // Acknowledgements
         createRule(
           triggerText: 'ok',
-          replyText: 'Got it! I\'ll get back to you shortly. 👍',
+          replyText: 'got it, talk soon!',
           exactMatch: true,
           containsMatch: false,
         ),
         createRule(
           triggerText: 'okay',
-          replyText: 'Noted! Talk soon.',
+          replyText: 'cool, cya later',
           exactMatch: true,
           containsMatch: false,
         ),
         createRule(
           triggerText: 'thanks',
-          replyText: 'You\'re welcome! 😊',
+          replyText: 'np any time',
         ),
         createRule(
           triggerText: 'thank you',
-          replyText: 'My pleasure! Happy to help. 😊',
+          replyText: 'anytime!',
         ),
         createRule(
           triggerText: 'sorry',
-          replyText: 'No worries at all! Don\'t stress about it. 🙂',
+          replyText: 'nah dw bout it',
         ),
 
         // Meeting & plans
         createRule(
           triggerText: 'when will you come',
-          replyText: 'I\'m on my way! Will be there soon. 🚗',
+          replyText: 'on my way, almost there',
         ),
         createRule(
           triggerText: 'where to meet',
-          replyText:
-              'Let\'s discuss when I\'m free. I\'ll message you shortly!',
+          replyText: 'ill let u know once im free, gimme a bit',
         ),
         createRule(
           triggerText: 'what time',
-          replyText: 'Let me check and get back to you on the timing.',
+          replyText: 'lemme check and tell u',
         ),
         createRule(
           triggerText: 'are we meeting',
-          replyText: 'Yes! I\'ll confirm the details shortly.',
+          replyText: 'yeah! ill confirm the details soon',
         ),
 
         // Emergency / urgency
         createRule(
           triggerText: 'urgent',
-          replyText: '⚠️ Noted as urgent! I\'ll respond as quickly as I can.',
+          replyText: 'got it, ill get back to u asap',
         ),
         createRule(
           triggerText: 'emergency',
-          replyText: '🚨 I see this is urgent! Responding as soon as possible.',
+          replyText: 'ok i see this, responding as soon as i can',
         ),
         createRule(
           triggerText: 'asap',
-          replyText: 'On it! I\'ll get back to you ASAP.',
+          replyText: 'on it, will get back to u asap',
         ),
 
         // Small talk
         createRule(
           triggerText: 'how are you',
-          replyText: 'I\'m doing well, thanks for asking! How about you? 😊',
+          replyText: 'im good thanks! how bout u?',
         ),
         createRule(
           triggerText: 'what\'s up',
-          replyText: 'Not much! Busy at the moment. What\'s up with you?',
+          replyText: 'nm, busy rn. wbu?',
         ),
         createRule(
           triggerText: 'whats up',
-          replyText: 'Hey! A little occupied right now. Will catch up soon!',
+          replyText: 'hey! bit busy rn but ill catch up with u soon',
         ),
         createRule(
           triggerText: 'miss you',
-          replyText: 'Miss you too! 💙 Let\'s catch up soon.',
+          replyText: 'miss u too! lets catch up soon',
         ),
         createRule(
           triggerText: 'thinking of you',
-          replyText: 'Aww, thinking of you too! 😊 Talk soon.',
+          replyText: 'awh thats sweet, talk soon!',
         ),
 
         // Goodbye
         createRule(
           triggerText: 'bye',
-          replyText: 'Bye! Talk later. Take care! 👋',
+          replyText: 'bye! talk later, take care',
           exactMatch: true,
           containsMatch: false,
         ),
         createRule(
           triggerText: 'goodbye',
-          replyText: 'Goodbye! Take care. 😊',
+          replyText: 'bye! take care',
         ),
         createRule(
           triggerText: 'take care',
-          replyText: 'You too! Take care. 💙',
+          replyText: 'u too! take care',
         ),
         createRule(
           triggerText: 'see you',
-          replyText: 'See you! Looking forward to it. 😊',
+          replyText: 'cya! looking forward to it',
         ),
         createRule(
           triggerText: 'talk later',
-          replyText: 'Sure! Talk later. 👋',
+          replyText: 'sure, talk later!',
         ),
       ];
 

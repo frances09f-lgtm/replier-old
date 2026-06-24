@@ -123,24 +123,7 @@ class AppNotificationListenerService : NotificationListenerService() {
             return
         }
 
-        // Determine reply text (AI or fixed)
-        val replyText = if (rule.isAiPowered) {
-            Log.d(TAG, "Rule is AI-powered, generating AI reply")
-            val aiReply = ruleEngine.generateAiReply(
-                message = message,
-                senderName = title,
-                personalityHint = rule.replyText.takeIf { it.isNotEmpty() }
-            )
-            if (aiReply != null) {
-                Log.d(TAG, "AI reply generated successfully")
-                aiReply
-            } else {
-                Log.w(TAG, "AI reply generation failed, falling back to fixed reply")
-                rule.replyText
-            }
-        } else {
-            rule.replyText
-        }
+        val replyText = rule.replyText
 
         // Duplicate prevention
         if (ruleEngine.shouldPreventDuplicates() &&

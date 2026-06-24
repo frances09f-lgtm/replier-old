@@ -32,7 +32,6 @@ dependencies:
   # Utils
   intl: ^0.18.1
   uuid: ^4.2.1
-  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

@@ -35,9 +35,6 @@ class Rule extends HiveObject {
   @HiveField(8)
   DateTime updatedAt;
 
-  @HiveField(10)
-  bool isAiPowered;
-
   /// Multiple trigger texts — the rule fires if ANY of these match.
   /// Falls back to [triggerText] when this list is empty (migration path).
   @HiveField(9)
@@ -54,7 +51,6 @@ class Rule extends HiveObject {
     required this.createdAt,
     required this.updatedAt,
     List<String>? triggerTexts,
-    this.isAiPowered = false,
   }) : triggerTexts = triggerTexts ?? [];
 
   /// All active trigger texts: uses [triggerTexts] when populated,
@@ -87,7 +83,6 @@ class Rule extends HiveObject {
       'isEnabled': isEnabled,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
-      'isAiPowered': isAiPowered,
     };
   }
 
@@ -108,7 +103,6 @@ class Rule extends HiveObject {
       createdAt: DateTime.parse(json['createdAt']),
       updatedAt: DateTime.parse(json['updatedAt']),
       triggerTexts: triggers,
-      isAiPowered: json['isAiPowered'] ?? false,
     );
   }
 
@@ -124,7 +118,6 @@ class Rule extends HiveObject {
     bool? isEnabled,
     DateTime? createdAt,
     DateTime? updatedAt,
-    bool? isAiPowered,
   }) {
     return Rule(
       id: id ?? this.id,
@@ -137,7 +130,6 @@ class Rule extends HiveObject {
       isEnabled: isEnabled ?? this.isEnabled,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      isAiPowered: isAiPowered ?? this.isAiPowered,
     );
   }
 }

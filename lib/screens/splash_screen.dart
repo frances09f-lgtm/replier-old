@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/rule_provider.dart';
@@ -46,7 +44,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const AppLogo(size: 96),
+            Icon(
+              Icons.reply_rounded,
+              size: 80,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             const SizedBox(height: 24),
             Text(
               'Auto Reply Assistant',
@@ -58,44 +60,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
             const CircularProgressIndicator(),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Modern app logo with gradient and clean design
-class AppLogo extends StatelessWidget {
-  final double size;
-  const AppLogo({super.key, this.size = 80});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Theme.of(context).colorScheme.primary,
-            Theme.of(context).colorScheme.primaryContainer,
-            Theme.of(context).colorScheme.tertiary,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(size * 0.22),
-       boxShadow: [
-          BoxShadow(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Icon(
-        Icons.flash_on_rounded,
-        size: size * 0.5,
-        color: Theme.of(context).colorScheme.onPrimary,
       ),
     );
   }

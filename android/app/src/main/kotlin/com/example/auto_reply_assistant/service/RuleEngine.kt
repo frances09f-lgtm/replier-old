@@ -2,14 +2,10 @@ package com.example.auto_reply_assistant.service
 
 import android.content.Context
 import android.util.Log
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.IOException
-import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /**
  * Pure Kotlin rule engine.
@@ -32,16 +28,12 @@ class RuleEngine(private val context: Context) {
         const val KEY_WHATSAPP_ENABLED = "whatsapp_enabled"
         const val KEY_INSTAGRAM_ENABLED = "instagram_enabled"
         const val KEY_IGNORE_GROUP_CHATS = "ignore_group_chats"
-        const val KEY_REPLY_DELAY_SECONDS = "reply_delay_seconds"
+        const val KEY_MIN_REPLY_DELAY_SECONDS = "min_reply_delay_seconds"
+        const val KEY_MAX_REPLY_DELAY_SECONDS = "max_reply_delay_seconds"
         const val KEY_PREVENT_DUPLICATES = "prevent_duplicate_replies"
-        const val KEY_AI_ENABLED = "ai_enabled"
-        const val KEY_GROQ_API_KEY = "groq_api_key"
-        const val KEY_AI_MODEL = "ai_model"
-        const val KEY_AI_SYSTEM_PROMPT = "ai_system_prompt"
 
         private const val RULES_FILE = "auto_reply_rules.json"
         private const val SETTINGS_FILE = "auto_reply_settings.json"
-        private const val GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
     }
 
     private val prefs get() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -96,7 +88,6 @@ class RuleEngine(private val context: Context) {
         val containsMatch: Boolean,
         val caseSensitive: Boolean,
         val isEnabled: Boolean,
-        val isAiPowered: Boolean = false,
     ) {
         /** All active trigger texts: uses triggerTexts when populated, else falls back to triggerText */
         val effectiveTriggers: List<String>
@@ -125,7 +116,6 @@ class RuleEngine(private val context: Context) {
                     containsMatch = it.optBoolean("containsMatch", true),
                     caseSensitive = it.optBoolean("caseSensitive", false),
                     isEnabled = it.optBoolean("isEnabled", true),
-                    isAiPowered = it.optBoolean("isAiPowered", false),
                 )
             }
         } catch (e: Exception) {
@@ -200,17 +190,28 @@ class RuleEngine(private val context: Context) {
     fun shouldIgnoreGroupChats(): Boolean {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optBoolean("ignoreGroupChats", false)
+            if (json != "{}") return JSONObject(json).optBoolean("ignoreGroupChats", true)
         } catch (_: Exception) {}
         return prefs.getBoolean(KEY_IGNORE_GROUP_CHATS, false)
     }
 
     fun getReplyDelayMs(): Long {
+        val minSec: Int
+        val maxSec: Int
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optInt("replyDelaySeconds", 0) * 1000L
+            if (json != "{}") {
+                val obj = JSONObject(json)
+                minSec = obj.optInt("minReplyDelaySeconds", 0)
+                maxSec = obj.optInt("maxReplyDelaySeconds", 10)
+                val delay = if (minSec >= maxSec) minSec else Random.nextInt(minSec, maxSec + 1)
+                return delay * 1000L
+            }
         } catch (_: Exception) {}
-        return prefs.getInt(KEY_REPLY_DELAY_SECONDS, 0) * 1000L
+        val fallbackMin = prefs.getInt(KEY_MIN_REPLY_DELAY_SECONDS, 0)
+        val fallbackMax = prefs.getInt(KEY_MAX_REPLY_DELAY_SECONDS, 10)
+        val delay = if (fallbackMin >= fallbackMax) fallbackMin else Random.nextInt(fallbackMin, fallbackMax + 1)
+        return delay * 1000L
     }
 
     fun shouldPreventDuplicates(): Boolean {
@@ -219,49 +220,6 @@ class RuleEngine(private val context: Context) {
             if (json != "{}") return JSONObject(json).optBoolean("preventDuplicateReplies", true)
         } catch (_: Exception) {}
         return prefs.getBoolean(KEY_PREVENT_DUPLICATES, true)
-    }
-
-    fun isAiEnabled(): Boolean {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optBoolean("aiEnabled", false)
-        } catch (_: Exception) {}
-        return prefs.getBoolean(KEY_AI_ENABLED, false)
-    }
-
-    fun getGroqApiKey(): String? {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") {
-                val key = JSONObject(json).optString("groqApiKey", null)
-                if (key != null && key.isNotEmpty()) return key
-            }
-        } catch (_: Exception) {}
-        return prefs.getString(KEY_GROQ_API_KEY, null)
-    }
-
-    fun getAiModel(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") {
-                val model = JSONObject(json).optString("aiModel", null)
-                if (model != null && model.isNotEmpty()) return model
-            }
-        } catch (_: Exception) {}
-        return prefs.getString(KEY_AI_MODEL, "llama-3.1-8b-instant") ?: "llama-3.1-8b-instant"
-    }
-
-    fun getAiSystemPrompt(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") {
-                val prompt = JSONObject(json).optString("aiSystemPrompt", null)
-                if (prompt != null && prompt.isNotEmpty()) return prompt
-            }
-        } catch (_: Exception) {}
-        return prefs.getString(KEY_AI_SYSTEM_PROMPT, 
-            "You are a helpful auto-reply assistant. Keep responses brief, friendly, and conversational. Respond as if you are the person receiving the message."
-        ) ?: "You are a helpful auto-reply assistant. Keep responses brief, friendly, and conversational. Respond as if you are the person receiving the message."
     }
 
     // ── Duplicate tracking (in-memory, resets on service restart) ────────────
@@ -277,102 +235,6 @@ class RuleEngine(private val context: Context) {
 
     fun recordReplySent(sender: String, replyText: String) {
         recentReplies.add(Triple(sender, replyText, System.currentTimeMillis()))
-    }
-
-    // ── AI Reply Generation ─────────────────────────────────────────────────────
-
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .build()
-
-    /**
-     * Generate an AI reply using Groq API
-     * Returns null if AI is disabled or API call fails
-     */
-    fun generateAiReply(message: String, senderName: String? = null, personalityHint: String? = null): String? {
-        if (!isAiEnabled()) {
-            Log.d(TAG, "AI is disabled in settings")
-            return null
-        }
-
-        val apiKey = getGroqApiKey()
-        if (apiKey.isNullOrEmpty()) {
-            Log.d(TAG, "Groq API key not configured")
-            return null
-        }
-
-        val model = getAiModel()
-        val systemPrompt = if (personalityHint != null && personalityHint.isNotEmpty()) {
-            "$personalityHint ${getAiSystemPrompt()}"
-        } else {
-            getAiSystemPrompt()
-        }
-
-        try {
-            val messagesJson = JSONArray()
-            messagesJson.put(JSONObject().apply {
-                put("role", "system")
-                put("content", systemPrompt)
-            })
-
-            val userMessage = if (senderName != null && senderName.isNotEmpty()) {
-                "Message from $senderName: $message"
-            } else {
-                message
-            }
-            messagesJson.put(JSONObject().apply {
-                put("role", "user")
-                put("content", userMessage)
-            })
-
-            val requestBody = JSONObject().apply {
-                put("model", model)
-                put("messages", messagesJson)
-                put("max_tokens", 150)
-                put("temperature", 0.7)
-                put("top_p", 0.9)
-            }
-
-            val mediaType = "application/json".toMediaType()
-            val body = requestBody.toString().toRequestBody(mediaType)
-
-            val request = Request.Builder()
-                .url(GROQ_API_URL)
-                .addHeader("Authorization", "Bearer $apiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(body)
-                .build()
-
-            Log.d(TAG, "Calling Groq API with model: $model")
-
-            httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    Log.e(TAG, "Groq API error: ${response.code}")
-                    return null
-                }
-
-                val responseBody = response.body?.string()
-                if (responseBody != null) {
-                    val jsonResponse = JSONObject(responseBody)
-                    val choices = jsonResponse.optJSONArray("choices")
-                    if (choices != null && choices.length() > 0) {
-                        val firstChoice = choices.getJSONObject(0)
-                        val messageObj = firstChoice.getJSONObject("message")
-                        val reply = messageObj.optString("content", "").trim()
-                        Log.d(TAG, "AI generated reply: '${reply.take(50)}...'")
-                        return reply
-                    }
-                }
-            }
-        } catch (e: IOException) {
-            Log.e(TAG, "Network error calling Groq API", e)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error generating AI reply", e)
-        }
-
-        return null
     }
 
     // ── Write helpers (called from Flutter sync via MethodChannel) ────────────
@@ -400,13 +262,9 @@ class RuleEngine(private val context: Context) {
                 .putBoolean(KEY_WHATSAPP_ENABLED, obj.optBoolean("whatsappEnabled", true))
                 .putBoolean(KEY_INSTAGRAM_ENABLED, obj.optBoolean("instagramEnabled", true))
                 .putBoolean(KEY_IGNORE_GROUP_CHATS, obj.optBoolean("ignoreGroupChats", false))
-                .putInt(KEY_REPLY_DELAY_SECONDS, obj.optInt("replyDelaySeconds", 0))
+                .putInt(KEY_MIN_REPLY_DELAY_SECONDS, obj.optInt("minReplyDelaySeconds", 0))
+                .putInt(KEY_MAX_REPLY_DELAY_SECONDS, obj.optInt("maxReplyDelaySeconds", 10))
                 .putBoolean(KEY_PREVENT_DUPLICATES, obj.optBoolean("preventDuplicateReplies", true))
-                .putBoolean(KEY_AI_ENABLED, obj.optBoolean("aiEnabled", false))
-                .putString(KEY_GROQ_API_KEY, obj.optString("groqApiKey", null))
-                .putString(KEY_AI_MODEL, obj.optString("aiModel", "llama-3.1-8b-instant"))
-                .putString(KEY_AI_SYSTEM_PROMPT, obj.optString("aiSystemPrompt", 
-                    "You are a helpful auto-reply assistant. Keep responses brief, friendly, and conversational. Respond as if you are the person receiving the message."))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

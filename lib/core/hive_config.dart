@@ -26,32 +26,13 @@ class HiveConfig {
       Hive.registerAdapter(ReplyLogAdapter());
     }
     
-    // Force clear all boxes to handle schema migration
-    // This is necessary because we added new fields to the models
-    try {
-      await Hive.deleteBoxFromDisk(AppConstants.rulesBox);
-    } catch (e) {
-      print('Rules box may not exist yet: $e');
-    }
-    
-    try {
-      await Hive.deleteBoxFromDisk(AppConstants.settingsBox);
-    } catch (e) {
-      print('Settings box may not exist yet: $e');
-    }
-    
-    try {
-      await Hive.deleteBoxFromDisk(AppConstants.logsBox);
-    } catch (e) {
-      print('Logs box may not exist yet: $e');
-    }
-    
-    // Open fresh boxes
+    // Open boxes (data persists across app launches)
     await Hive.openBox<Rule>(AppConstants.rulesBox);
     await Hive.openBox<AppSettings>(AppConstants.settingsBox);
     await Hive.openBox<ReplyLog>(AppConstants.logsBox);
+    await Hive.openBox(AppConstants.statsBox);
     
-    print('Hive boxes initialized with fresh schema');
+    print('Hive boxes initialized');
   }
 
   /// Get rules box
@@ -67,6 +48,11 @@ class HiveConfig {
   /// Get logs box
   static Box<ReplyLog> getLogsBox() {
     return Hive.box<ReplyLog>(AppConstants.logsBox);
+  }
+
+  /// Get stats box (for counters like total notifications received)
+  static Box getStatsBox() {
+    return Hive.box(AppConstants.statsBox);
   }
 
   /// Close all boxes

@@ -25,7 +25,6 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
   bool _containsMatch = true;
   bool _caseSensitive = false;
   bool _isEnabled = true;
-  bool _isAiPowered = false;
 
   @override
   void initState() {
@@ -36,7 +35,6 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
     _containsMatch = rule?.containsMatch ?? true;
     _caseSensitive = rule?.caseSensitive ?? false;
     _isEnabled = rule?.isEnabled ?? true;
-    _isAiPowered = rule?.isAiPowered ?? false;
 
     // Populate trigger controllers from existing rule
     final triggers = rule?.effectiveTriggers ?? [];
@@ -97,7 +95,6 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         containsMatch: _containsMatch,
         caseSensitive: _caseSensitive,
         isEnabled: _isEnabled,
-        isAiPowered: _isAiPowered,
       );
       await ruleNotifier.updateRule(updatedRule);
     } else {
@@ -110,9 +107,7 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         caseSensitive: _caseSensitive,
         isEnabled: _isEnabled,
       );
-      // Manually set isAiPowered since createRule doesn't support it
-      final aiRule = newRule.copyWith(isAiPowered: _isAiPowered);
-      await ruleNotifier.addRule(aiRule);
+      await ruleNotifier.addRule(newRule);
     }
 
     if (mounted) Navigator.pop(context);
@@ -199,36 +194,9 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
 
             const Divider(height: 32),
 
-            // ── AI Reply Toggle ────────────────────────────────────────────
-            SwitchListTile(
-              title: Row(
-                children: [
-                  const Text('AI-Powered Reply'),
-                  const SizedBox(width: 8),
-                  Icon(Icons.auto_awesome, 
-                    size: 18, 
-                    color: colorScheme.primary,
-                  ),
-                ],
-              ),
-              subtitle: Text(
-                _isAiPowered 
-                  ? 'AI will generate dynamic replies based on the message'
-                  : 'Use fixed reply text (faster, no API needed)',
-              ),
-              value: _isAiPowered,
-              onChanged: (value) {
-                setState(() {
-                  _isAiPowered = value;
-                });
-              },
-            ),
-
-            const SizedBox(height: 8),
-
             // ── Reply text ────────────────────────────────────────────────
             Text(
-              _isAiPowered ? 'AI Personality Hint (Optional)' : 'Reply Text',
+              'Reply Text',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -236,33 +204,20 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _replyController,
-              decoration: InputDecoration(
-                labelText: _isAiPowered ? 'Personality Hint' : 'Reply Text',
-                hintText: _isAiPowered 
-                  ? 'e.g., Be casual and friendly'
-                  : 'e.g., Hey! I\'ll get back to you soon.',
-                border: const OutlineInputBorder(),
-                prefixIcon: Icon(_isAiPowered ? Icons.psychology : Icons.reply, size: 18),
+              decoration: const InputDecoration(
+                labelText: 'Reply Text',
+                hintText: 'e.g., Hey! I\'ll get back to you soon.',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.reply, size: 18),
               ),
               maxLines: 3,
               validator: (value) {
-                // For AI-powered, reply text is optional
-                if (!_isAiPowered && (value == null || value.trim().isEmpty)) {
+                if (value == null || value.trim().isEmpty) {
                   return 'Please enter reply text';
                 }
                 return null;
               },
             ),
-            if (_isAiPowered) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Leave empty to use default AI personality from settings',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                    ),
-              ),
-            ],
 
             const Divider(height: 32),
 

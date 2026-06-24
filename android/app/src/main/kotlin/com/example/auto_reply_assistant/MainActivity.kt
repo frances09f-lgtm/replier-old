@@ -22,6 +22,12 @@ class MainActivity : FlutterActivity() {
     private lateinit var notificationMethodChannel: MethodChannel
     private lateinit var ruleEngine: RuleEngine
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Switch to normal theme before super.onCreate() to prevent showing launch screen
+        setTheme(R.style.NormalTheme)
+        super.onCreate(savedInstanceState)
+    }
+
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 

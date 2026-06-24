@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/settings_provider.dart';
-import '../services/ai_service.dart';
 
 /// Screen for app settings
 class SettingsScreen extends ConsumerWidget {
@@ -84,13 +83,13 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: 16),
 
-          // Reply delay
+          // Reply delay range
           ListTile(
-            title: const Text('Reply Delay'),
-            subtitle: Text('${settings.replyDelaySeconds} seconds'),
+            title: const Text('Reply Delay Range'),
+            subtitle: Text('${settings.minReplyDelaySeconds}s - ${settings.maxReplyDelaySeconds}s (random)'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () =>
-                _showReplyDelayDialog(context, ref, settings.replyDelaySeconds),
+            onTap: () => _showReplyDelayDialog(
+              context, ref, settings.minReplyDelaySeconds, settings.maxReplyDelaySeconds),
           ),
 
           SwitchListTile(
@@ -112,74 +111,6 @@ class SettingsScreen extends ConsumerWidget {
               ref.read(appSettingsProvider.notifier).toggleIgnoreGroupChats();
             },
           ),
-
-          const SizedBox(height: 24),
-
-          // AI Settings section
-          Text(
-            'AI Settings',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-
-          SwitchListTile(
-            title: Row(
-              children: [
-                const Text('Enable AI Replies'),
-                const SizedBox(width: 8),
-                Icon(Icons.auto_awesome, 
-                  size: 18, 
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ],
-            ),
-            subtitle: const Text('Use AI to generate dynamic replies'),
-            value: settings.aiEnabled,
-            onChanged: (_) {
-              ref.read(appSettingsProvider.notifier).toggleAiEnabled();
-            },
-          ),
-
-          ListTile(
-            title: const Text('API Key'),
-            subtitle: Text(
-              settings.groqApiKey?.isNotEmpty == true 
-                ? '••••••••••••••••'
-                : 'Not configured',
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showApiKeyDialog(context, ref, settings.groqApiKey ?? ''),
-          ),
-
-          ListTile(
-            title: const Text('AI Model'),
-            subtitle: Text(settings.aiModel),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showModelDialog(context, ref, settings.aiModel),
-          ),
-
-          ListTile(
-            title: const Text('AI Personality'),
-            subtitle: Text(
-              settings.aiSystemPrompt.length > 50
-                ? '${settings.aiSystemPrompt.substring(0, 50)}...'
-                : settings.aiSystemPrompt,
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showSystemPromptDialog(context, ref, settings.aiSystemPrompt),
-          ),
-
-          if (settings.aiEnabled && settings.groqApiKey?.isNotEmpty == true)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: ElevatedButton.icon(
-                onPressed: () => _testAiConnection(context, ref),
-                icon: const Icon(Icons.sync),
-                label: const Text('Test AI Connection'),
-              ),
-            ),
 
           const SizedBox(height: 24),
 
@@ -240,215 +171,50 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _showApiKeyDialog(
-    BuildContext context,
-    WidgetRef ref,
-    String currentKey,
-  ) {
-    final controller = TextEditingController(text: currentKey);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Groq API Key'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Enter your Groq API key:'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: const InputDecoration(
-                hintText: 'gsk_...',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 1,
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Get your free API key from console.groq.com',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref
-                  .read(appSettingsProvider.notifier)
-                  .updateGroqApiKey(controller.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showModelDialog(
-    BuildContext context,
-    WidgetRef ref,
-    String currentModel,
-  ) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select AI Model'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: AiService.availableModels.map((model) {
-            return RadioListTile<String>(
-              title: Text(
-                model,
-                style: const TextStyle(fontSize: 12),
-              ),
-              value: model,
-              groupValue: currentModel,
-              onChanged: (value) {
-                ref
-                    .read(appSettingsProvider.notifier)
-                    .updateAiModel(value!);
-                Navigator.pop(context);
-              },
-            );
-          }).toList(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSystemPromptDialog(
-    BuildContext context,
-    WidgetRef ref,
-    String currentPrompt,
-  ) {
-    final controller = TextEditingController(text: currentPrompt);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('AI Personality'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Define how the AI should respond:'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'You are a helpful assistant...',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 5,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref
-                  .read(appSettingsProvider.notifier)
-                  .updateAiSystemPrompt(controller.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _testAiConnection(
-    BuildContext context,
-    WidgetRef ref,
-  ) async {
-    final settings = ref.read(appSettingsProvider);
-    
-    if (settings.groqApiKey == null || settings.groqApiKey!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please configure API key first')),
-      );
-      return;
-    }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('Testing connection...'),
-          ],
-        ),
-      ),
-    );
-
-    final aiService = AiService();
-    aiService.setApiKey(settings.groqApiKey!);
-    aiService.setModel(settings.aiModel);
-    aiService.setSystemPrompt(settings.aiSystemPrompt);
-
-    final success = await aiService.testConnection();
-
-    if (context.mounted) {
-      Navigator.pop(context);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? 'AI connection successful!' : 'AI connection failed. Check your API key.',
-          ),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ),
-      );
-    }
-  }
-
   void _showReplyDelayDialog(
     BuildContext context,
     WidgetRef ref,
-    int currentDelay,
+    int currentMin,
+    int currentMax,
   ) {
-    int tempDelay = currentDelay;
+    int tempMin = currentMin;
+    int tempMax = currentMax;
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Reply Delay'),
+          title: const Text('Reply Delay Range'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('Delay: $tempDelay seconds'),
+              Text('Min: $tempMin s  |  Max: $tempMax s'),
               const SizedBox(height: 16),
+              const Text('Minimum delay:'),
               Slider(
-                value: tempDelay.toDouble(),
+                value: tempMin.toDouble(),
                 min: 0,
                 max: 60,
                 divisions: 60,
-                label: '$tempDelay seconds',
+                label: '${tempMin}s',
                 onChanged: (value) {
                   setDialogState(() {
-                    tempDelay = value.toInt();
+                    tempMin = value.toInt();
+                    if (tempMin > tempMax) tempMax = tempMin;
+                  });
+                },
+              ),
+              const SizedBox(height: 8),
+              const Text('Maximum delay:'),
+              Slider(
+                value: tempMax.toDouble(),
+                min: tempMin.toDouble(),
+                max: 60,
+                divisions: (60 - tempMin),
+                label: '${tempMax}s',
+                onChanged: (value) {
+                  setDialogState(() {
+                    tempMax = value.toInt();
                   });
                 },
               ),
@@ -463,7 +229,7 @@ class SettingsScreen extends ConsumerWidget {
               onPressed: () {
                 ref
                     .read(appSettingsProvider.notifier)
-                    .updateReplyDelay(tempDelay);
+                    .updateReplyDelayRange(tempMin, tempMax);
                 Navigator.pop(context);
               },
               child: const Text('OK'),

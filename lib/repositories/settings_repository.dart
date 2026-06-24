@@ -15,15 +15,12 @@ class SettingsRepository {
         masterEnabled: true,
         whatsappEnabled: true,
         instagramEnabled: true,
-        replyDelaySeconds: AppConstants.defaultReplyDelay,
+        minReplyDelaySeconds: AppConstants.defaultMinReplyDelay,
+        maxReplyDelaySeconds: AppConstants.defaultMaxReplyDelay,
         preventDuplicateReplies: AppConstants.defaultPreventDuplicateReplies,
         ignoreGroupChats: AppConstants.defaultIgnoreGroupChats,
         darkMode: false,
         lastUpdated: DateTime.now(),
-        aiEnabled: false,
-        groqApiKey: null,
-        aiModel: 'llama-3.1-8b-instant',
-        aiSystemPrompt: 'You are a helpful auto-reply assistant. Keep responses brief, friendly, and conversational. Respond as if you are the person receiving the message.',
       );
       box.put('settings', defaultSettings);
       return defaultSettings;
@@ -67,11 +64,14 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
-  /// Update reply delay
-  Future<void> updateReplyDelay(int delaySeconds) async {
+  /// Update reply delay range
+  Future<void> updateReplyDelayRange(int minSeconds, int maxSeconds) async {
     final settings = getSettings();
+    final clampedMin = minSeconds.clamp(0, AppConstants.maxReplyDelay);
+    final clampedMax = maxSeconds.clamp(clampedMin, AppConstants.maxReplyDelay);
     final updatedSettings = settings.copyWith(
-      replyDelaySeconds: delaySeconds.clamp(0, AppConstants.maxReplyDelay),
+      minReplyDelaySeconds: clampedMin,
+      maxReplyDelaySeconds: clampedMax,
     );
     await updateSettings(updatedSettings);
   }

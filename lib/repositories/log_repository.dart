@@ -61,14 +61,29 @@ class LogRepository {
     }
   }
 
-  /// Get total logs count
+  /// Get total logs count (replies sent)
   int getTotalLogsCount() {
-    return getAllLogs().length;
+    final box = HiveConfig.getLogsBox();
+    return box.length;
+  }
+
+  /// Increment notifications received counter
+  Future<void> incrementNotificationsReceived() async {
+    final statsBox = HiveConfig.getStatsBox();
+    final current = statsBox.get('totalNotificationsReceived', defaultValue: 0) as int;
+    await statsBox.put('totalNotificationsReceived', current + 1);
+  }
+
+  /// Get total notifications received
+  int getTotalNotificationsReceived() {
+    final statsBox = HiveConfig.getStatsBox();
+    return statsBox.get('totalNotificationsReceived', defaultValue: 0) as int;
   }
 
   /// Get logs count by app
   int getLogsCountByApp(String appName) {
-    return getLogsByApp(appName).length;
+    final box = HiveConfig.getLogsBox();
+    return box.values.where((log) => log.appName == appName).length;
   }
 
   /// Check if a similar reply was recently sent (for duplicate prevention)

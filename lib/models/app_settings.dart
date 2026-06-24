@@ -16,7 +16,10 @@ class AppSettings extends HiveObject {
   bool instagramEnabled;
 
   @HiveField(3)
-  int replyDelaySeconds;
+  int minReplyDelaySeconds;
+
+  @HiveField(9)
+  int maxReplyDelaySeconds;
 
   @HiveField(4)
   bool preventDuplicateReplies;
@@ -30,31 +33,16 @@ class AppSettings extends HiveObject {
   @HiveField(7)
   DateTime lastUpdated;
 
-  @HiveField(8)
-  bool aiEnabled;
-
-  @HiveField(9)
-  String? groqApiKey;
-
-  @HiveField(10)
-  String aiModel;
-
-  @HiveField(11)
-  String aiSystemPrompt;
-
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
     this.instagramEnabled = true,
-    this.replyDelaySeconds = 0,
+    this.minReplyDelaySeconds = 0,
+    this.maxReplyDelaySeconds = 10,
     this.preventDuplicateReplies = true,
-    this.ignoreGroupChats = false,
+    this.ignoreGroupChats = true,
     this.darkMode = false,
     required this.lastUpdated,
-    this.aiEnabled = false,
-    this.groqApiKey,
-    this.aiModel = 'llama-3.1-8b-instant',
-    this.aiSystemPrompt = 'You are a helpful auto-reply assistant. Keep responses brief, friendly, and conversational. Respond as if you are the person receiving the message.',
   });
 
   /// Convert to JSON
@@ -63,15 +51,12 @@ class AppSettings extends HiveObject {
       'masterEnabled': masterEnabled,
       'whatsappEnabled': whatsappEnabled,
       'instagramEnabled': instagramEnabled,
-      'replyDelaySeconds': replyDelaySeconds,
+      'minReplyDelaySeconds': minReplyDelaySeconds,
+      'maxReplyDelaySeconds': maxReplyDelaySeconds,
       'preventDuplicateReplies': preventDuplicateReplies,
       'ignoreGroupChats': ignoreGroupChats,
       'darkMode': darkMode,
       'lastUpdated': lastUpdated.toIso8601String(),
-      'aiEnabled': aiEnabled,
-      'groqApiKey': groqApiKey,
-      'aiModel': aiModel,
-      'aiSystemPrompt': aiSystemPrompt,
     };
   }
 
@@ -81,15 +66,12 @@ class AppSettings extends HiveObject {
       masterEnabled: json['masterEnabled'] ?? true,
       whatsappEnabled: json['whatsappEnabled'] ?? true,
       instagramEnabled: json['instagramEnabled'] ?? true,
-      replyDelaySeconds: json['replyDelaySeconds'] ?? 0,
+      minReplyDelaySeconds: json['minReplyDelaySeconds'] ?? json['replyDelaySeconds'] ?? 0,
+      maxReplyDelaySeconds: json['maxReplyDelaySeconds'] ?? json['replyDelaySeconds'] ?? 10,
       preventDuplicateReplies: json['preventDuplicateReplies'] ?? true,
-      ignoreGroupChats: json['ignoreGroupChats'] ?? false,
+      ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
       lastUpdated: DateTime.parse(json['lastUpdated']),
-      aiEnabled: json['aiEnabled'] ?? false,
-      groqApiKey: json['groqApiKey'],
-      aiModel: json['aiModel'] ?? 'llama-3.1-8b-instant',
-      aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a helpful auto-reply assistant. Keep responses brief, friendly, and conversational. Respond as if you are the person receiving the message.',
     );
   }
 
@@ -98,29 +80,23 @@ class AppSettings extends HiveObject {
     bool? masterEnabled,
     bool? whatsappEnabled,
     bool? instagramEnabled,
-    int? replyDelaySeconds,
+    int? minReplyDelaySeconds,
+    int? maxReplyDelaySeconds,
     bool? preventDuplicateReplies,
     bool? ignoreGroupChats,
     bool? darkMode,
     DateTime? lastUpdated,
-    bool? aiEnabled,
-    String? groqApiKey,
-    String? aiModel,
-    String? aiSystemPrompt,
   }) {
     return AppSettings(
       masterEnabled: masterEnabled ?? this.masterEnabled,
       whatsappEnabled: whatsappEnabled ?? this.whatsappEnabled,
       instagramEnabled: instagramEnabled ?? this.instagramEnabled,
-      replyDelaySeconds: replyDelaySeconds ?? this.replyDelaySeconds,
+      minReplyDelaySeconds: minReplyDelaySeconds ?? this.minReplyDelaySeconds,
+      maxReplyDelaySeconds: maxReplyDelaySeconds ?? this.maxReplyDelaySeconds,
       preventDuplicateReplies: preventDuplicateReplies ?? this.preventDuplicateReplies,
       ignoreGroupChats: ignoreGroupChats ?? this.ignoreGroupChats,
       darkMode: darkMode ?? this.darkMode,
       lastUpdated: lastUpdated ?? this.lastUpdated,
-      aiEnabled: aiEnabled ?? this.aiEnabled,
-      groqApiKey: groqApiKey ?? this.groqApiKey,
-      aiModel: aiModel ?? this.aiModel,
-      aiSystemPrompt: aiSystemPrompt ?? this.aiSystemPrompt,
     );
   }
 }

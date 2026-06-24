@@ -49,6 +49,9 @@ class AutoReplyService {
 
   Future<void> _maybeLog(NotificationData notification) async {
     try {
+      // Track every notification received
+      await _logRepository.incrementNotificationsReceived();
+
       // Only log if native would have replied (same rule check, no sending)
       final allRules = _ruleRepository.getEnabledRules();
       final lower = notification.message.trim().toLowerCase();

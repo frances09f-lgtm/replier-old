@@ -70,8 +70,8 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateReplyDelay(int delaySeconds) async {
-    await _repository.updateReplyDelay(delaySeconds);
+  Future<void> updateReplyDelayRange(int minSeconds, int maxSeconds) async {
+    await _repository.updateReplyDelayRange(minSeconds, maxSeconds);
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);
@@ -96,26 +96,6 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     final s = _repository.getSettings();
     state = s;
     // Dark mode is UI-only — no need to sync to native
-  }
-
-  Future<void> toggleAiEnabled() async {
-    final updated = state.copyWith(aiEnabled: !state.aiEnabled);
-    await _updateAndSync(updated);
-  }
-
-  Future<void> updateGroqApiKey(String apiKey) async {
-    final updated = state.copyWith(groqApiKey: apiKey.isEmpty ? null : apiKey);
-    await _updateAndSync(updated);
-  }
-
-  Future<void> updateAiModel(String model) async {
-    final updated = state.copyWith(aiModel: model);
-    await _updateAndSync(updated);
-  }
-
-  Future<void> updateAiSystemPrompt(String prompt) async {
-    final updated = state.copyWith(aiSystemPrompt: prompt);
-    await _updateAndSync(updated);
   }
 }
 

@@ -19,7 +19,7 @@ class StatisticsRepository {
   /// Get dashboard statistics
   Map<String, dynamic> getDashboardStats() {
     return {
-      'totalNotificationsReceived': _logRepository.getTotalLogsCount(),
+      'totalNotificationsReceived': _logRepository.getTotalNotificationsReceived(),
       'totalRepliesSent': _logRepository.getTotalLogsCount(),
       'lastReplySent': _logRepository.getLastReplyLog()?.dateTime,
       'activeRulesCount': _ruleRepository.getActiveRulesCount(),
@@ -29,7 +29,7 @@ class StatisticsRepository {
 
   /// Get total notifications received
   int getTotalNotificationsReceived() {
-    return _logRepository.getTotalLogsCount();
+    return _logRepository.getTotalNotificationsReceived();
   }
 
   /// Get total replies sent
