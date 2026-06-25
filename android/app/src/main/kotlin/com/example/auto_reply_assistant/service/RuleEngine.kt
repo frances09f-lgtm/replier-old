@@ -84,6 +84,7 @@ class RuleEngine(private val context: Context) {
         val triggerText: String,
         val triggerTexts: List<String>,   // multi-trigger support
         val replyText: String,
+        val replies: List<String>,         // multi-reply support
         val exactMatch: Boolean,
         val containsMatch: Boolean,
         val caseSensitive: Boolean,
@@ -92,6 +93,13 @@ class RuleEngine(private val context: Context) {
         /** All active trigger texts: uses triggerTexts when populated, else falls back to triggerText */
         val effectiveTriggers: List<String>
             get() = if (triggerTexts.isNotEmpty()) triggerTexts else listOf(triggerText)
+
+        /** All active reply texts: uses replies when populated, else falls back to replyText */
+        val effectiveReplies: List<String>
+            get() = if (replies.isNotEmpty()) replies else listOf(replyText)
+
+        /** Return a random reply from the effective replies list */
+        fun randomReply(): String = effectiveReplies.random()
     }
 
     /** Load all enabled rules */
@@ -107,11 +115,16 @@ class RuleEngine(private val context: Context) {
                 val triggerList = if (rawTriggers != null) {
                     (0 until rawTriggers.length()).map { i -> rawTriggers.getString(i) }
                 } else emptyList()
+                val rawReplies = it.optJSONArray("replies")
+                val replyList = if (rawReplies != null) {
+                    (0 until rawReplies.length()).map { i -> rawReplies.getString(i) }
+                } else emptyList()
                 Rule(
                     id = it.optString("id", ""),
                     triggerText = it.optString("triggerText", ""),
                     triggerTexts = triggerList,
                     replyText = it.optString("replyText", ""),
+                    replies = replyList,
                     exactMatch = it.optBoolean("exactMatch", false),
                     containsMatch = it.optBoolean("containsMatch", true),
                     caseSensitive = it.optBoolean("caseSensitive", false),
@@ -150,12 +163,6 @@ class RuleEngine(private val context: Context) {
     /** Check if a message was sent by this app (self-reply guard) */
     fun isSelfSentMessage(message: String): Boolean {
         val lower = message.trim().lowercase()
-        // Check against rule reply texts
-        val rules = getEnabledRules()
-        if (rules.any { it.replyText.trim().lowercase() == lower }) {
-            Log.d(TAG, "isSelfSentMessage: matched rule reply text")
-            return true
-        }
         // Check against all sent replies (including AI-generated)
         if (lower in sentReplyTexts) {
             Log.d(TAG, "isSelfSentMessage: matched previously sent reply text")
@@ -258,6 +265,31 @@ class RuleEngine(private val context: Context) {
         } catch (_: Exception) {}
         return prefs.getString("ai_system_prompt",
             "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.") ?: ""
+    }
+
+    // ── AI Usage tracking ────────────────────────────────────────────────────
+
+    fun saveAiUsage(tokensUsed: Int, tokensRemaining: Int, tokensLimit: Int, resetInSeconds: Int, error: String?) {
+        prefs.edit()
+            .putInt("ai_tokens_used", tokensUsed)
+            .putInt("ai_tokens_remaining", tokensRemaining)
+            .putInt("ai_tokens_limit", tokensLimit)
+            .putInt("ai_reset_seconds", resetInSeconds)
+            .putString("ai_usage_error", error ?: "")
+            .putLong("ai_usage_timestamp", System.currentTimeMillis())
+            .apply()
+        Log.d(TAG, "saveAiUsage: used=$tokensUsed, remaining=$tokensRemaining, limit=$tokensLimit")
+    }
+
+    fun getAiUsage(): Map<String, Any> {
+        return mapOf(
+            "tokensUsed" to prefs.getInt("ai_tokens_used", 0),
+            "tokensRemaining" to prefs.getInt("ai_tokens_remaining", 0),
+            "tokensLimit" to prefs.getInt("ai_tokens_limit", 0),
+            "resetInSeconds" to prefs.getInt("ai_reset_seconds", 0),
+            "error" to (prefs.getString("ai_usage_error", "") ?: ""),
+            "timestamp" to prefs.getLong("ai_usage_timestamp", 0).toInt()
+        )
     }
 
     // ── Duplicate tracking (in-memory, resets on service restart) ────────────

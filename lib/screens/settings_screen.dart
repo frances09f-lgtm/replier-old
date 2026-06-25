@@ -246,13 +246,12 @@ class SettingsScreen extends ConsumerWidget {
               Slider(
                 value: tempMin.toDouble(),
                 min: 0,
-                max: 60,
-                divisions: 60,
+                max: 300,
+                divisions: 300,
                 label: '${tempMin}s',
                 onChanged: (value) {
                   setDialogState(() {
                     tempMin = value.toInt();
-                    if (tempMin > tempMax) tempMax = tempMin;
                   });
                 },
               ),
@@ -260,9 +259,9 @@ class SettingsScreen extends ConsumerWidget {
               const Text('Maximum delay:'),
               Slider(
                 value: tempMax.toDouble(),
-                min: tempMin.toDouble(),
-                max: 60,
-                divisions: (60 - tempMin),
+                min: 0,
+                max: 300,
+                divisions: 300,
                 label: '${tempMax}s',
                 onChanged: (value) {
                   setDialogState(() {
@@ -279,9 +278,11 @@ class SettingsScreen extends ConsumerWidget {
             ),
             TextButton(
               onPressed: () {
+                final min = tempMin <= tempMax ? tempMin : tempMax;
+                final max = tempMin <= tempMax ? tempMax : tempMin;
                 ref
                     .read(appSettingsProvider.notifier)
-                    .updateReplyDelayRange(tempMin, tempMax);
+                    .updateReplyDelayRange(min, max);
                 Navigator.pop(context);
               },
               child: const Text('OK'),

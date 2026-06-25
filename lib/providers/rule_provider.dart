@@ -70,16 +70,11 @@ class RulesNotifier extends StateNotifier<List<Rule>> {
     return _repository.findMatchingRule(message);
   }
 
-  Future<void> addSampleRules() async {
-    await _repository.addSampleRules();
-    state = _repository.getAllRules();
-    await _syncService.syncRules(state);
-  }
-
   Rule createRule({
     required String triggerText,
     required String replyText,
     List<String>? triggerTexts,
+    List<String>? replies,
     bool exactMatch = false,
     bool containsMatch = true,
     bool caseSensitive = false,
@@ -89,6 +84,7 @@ class RulesNotifier extends StateNotifier<List<Rule>> {
       triggerText: triggerText,
       replyText: replyText,
       triggerTexts: triggerTexts,
+      replies: replies,
       exactMatch: exactMatch,
       containsMatch: containsMatch,
       caseSensitive: caseSensitive,

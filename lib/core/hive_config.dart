@@ -60,6 +60,11 @@ class HiveConfig {
     await Hive.close();
   }
 
+  /// Clear only the rules box
+  static Future<void> clearRulesBox() async {
+    await getRulesBox().clear();
+  }
+
   /// Clear all data (for testing purposes)
   static Future<void> clearAll() async {
     await getRulesBox().clear();

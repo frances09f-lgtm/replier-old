@@ -107,6 +107,10 @@ class MainActivity : FlutterActivity() {
                         result.error("INVALID_ARGUMENTS", "Missing key or replyText", null)
                     }
                 }
+                "getAiUsage" -> {
+                    val usage = ruleEngine.getAiUsage()
+                    result.success(usage)
+                }
                 else -> result.notImplemented()
             }
         }

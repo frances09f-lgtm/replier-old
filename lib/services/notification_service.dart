@@ -85,4 +85,17 @@ class NotificationService {
       throw Exception('Failed to send reply: $e');
     }
   }
+
+  /// Get AI usage data from native side
+  Future<Map<String, dynamic>?> getAiUsage() async {
+    try {
+      final result = await _notificationChannel.invokeMethod('getAiUsage');
+      if (result != null) {
+        return Map<String, dynamic>.from(result);
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
 }

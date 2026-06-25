@@ -4,7 +4,7 @@ import '../models/rule.dart';
 import '../providers/rule_provider.dart';
 
 /// Screen for adding or editing a rule.
-/// Supports multiple trigger texts that all map to one reply text.
+/// Supports multiple trigger texts and multiple reply texts.
 class AddEditRuleScreen extends ConsumerStatefulWidget {
   final Rule? rule;
 
@@ -16,10 +16,12 @@ class AddEditRuleScreen extends ConsumerStatefulWidget {
 
 class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _replyController = TextEditingController();
 
   /// Each trigger has its own controller.
   final List<TextEditingController> _triggerControllers = [];
+
+  /// Each reply has its own controller.
+  final List<TextEditingController> _replyControllers = [];
 
   bool _exactMatch = false;
   bool _containsMatch = true;
@@ -30,7 +32,6 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
   void initState() {
     super.initState();
     final rule = widget.rule;
-    _replyController.text = rule?.replyText ?? '';
     _exactMatch = rule?.exactMatch ?? false;
     _containsMatch = rule?.containsMatch ?? true;
     _caseSensitive = rule?.caseSensitive ?? false;
@@ -45,12 +46,24 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         _triggerControllers.add(TextEditingController(text: t));
       }
     }
+
+    // Populate reply controllers from existing rule
+    final replies = rule?.effectiveReplies ?? [];
+    if (replies.isEmpty) {
+      _replyControllers.add(TextEditingController());
+    } else {
+      for (final r in replies) {
+        _replyControllers.add(TextEditingController(text: r));
+      }
+    }
   }
 
   @override
   void dispose() {
-    _replyController.dispose();
     for (final c in _triggerControllers) {
+      c.dispose();
+    }
+    for (final c in _replyControllers) {
       c.dispose();
     }
     super.dispose();
@@ -63,10 +76,24 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
   }
 
   void _removeTrigger(int index) {
-    if (_triggerControllers.length == 1) return; // keep at least one
+    if (_triggerControllers.length == 1) return;
     setState(() {
       _triggerControllers[index].dispose();
       _triggerControllers.removeAt(index);
+    });
+  }
+
+  void _addReply() {
+    setState(() {
+      _replyControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeReply(int index) {
+    if (_replyControllers.length == 1) return;
+    setState(() {
+      _replyControllers[index].dispose();
+      _replyControllers.removeAt(index);
     });
   }
 
@@ -82,15 +109,20 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         .map((c) => c.text.trim())
         .where((t) => t.isNotEmpty)
         .toList();
+    final replies = _replyControllers
+        .map((c) => c.text.trim())
+        .where((r) => r.isNotEmpty)
+        .toList();
 
-    // Use first trigger as legacy triggerText, full list in triggerTexts
     final primaryTrigger = triggers.isNotEmpty ? triggers.first : '';
+    final primaryReply = replies.isNotEmpty ? replies.first : '';
 
     if (widget.rule != null) {
       final updatedRule = widget.rule!.copyWith(
         triggerText: primaryTrigger,
         triggerTexts: triggers,
-        replyText: _replyController.text.trim(),
+        replyText: primaryReply,
+        replies: replies,
         exactMatch: _exactMatch,
         containsMatch: _containsMatch,
         caseSensitive: _caseSensitive,
@@ -101,7 +133,8 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
       final newRule = ruleNotifier.createRule(
         triggerText: primaryTrigger,
         triggerTexts: triggers,
-        replyText: _replyController.text.trim(),
+        replyText: primaryReply,
+        replies: replies,
         exactMatch: _exactMatch,
         containsMatch: _containsMatch,
         caseSensitive: _caseSensitive,
@@ -169,7 +202,6 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
                           prefixIcon: const Icon(Icons.text_fields, size: 18),
                         ),
                         validator: (value) {
-                          // Only the first trigger is required
                           if (i == 0 &&
                               (value == null || value.trim().isEmpty)) {
                             return 'Enter at least one trigger text';
@@ -194,30 +226,70 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
 
             const Divider(height: 32),
 
-            // ── Reply text ────────────────────────────────────────────────
+            // ── Reply texts section ───────────────────────────────────────
+            Row(
+              children: [
+                Text(
+                  'Reply Texts',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _addReply,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
             Text(
-              'Reply Text',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+              'One reply is randomly selected when the rule fires.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[600],
                   ),
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _replyController,
-              decoration: const InputDecoration(
-                labelText: 'Reply Text',
-                hintText: 'e.g., Hey! I\'ll get back to you soon.',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.reply, size: 18),
-              ),
-              maxLines: 3,
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Please enter reply text';
-                }
-                return null;
-              },
-            ),
+
+            ...List.generate(_replyControllers.length, (i) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _replyControllers[i],
+                        decoration: InputDecoration(
+                          labelText: 'Reply ${i + 1}',
+                          hintText: 'e.g., Hey! I\'ll get back to you soon.',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.reply, size: 18),
+                        ),
+                        maxLines: 2,
+                        validator: (value) {
+                          if (i == 0 &&
+                              (value == null || value.trim().isEmpty)) {
+                            return 'Enter at least one reply text';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    if (_replyControllers.length > 1) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _removeReply(i),
+                        icon: Icon(Icons.remove_circle_outline,
+                            color: colorScheme.error),
+                        tooltip: 'Remove reply',
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
 
             const Divider(height: 32),
 

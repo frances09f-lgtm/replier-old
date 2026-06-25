@@ -40,6 +40,11 @@ class Rule extends HiveObject {
   @HiveField(9)
   List<String> triggerTexts;
 
+  /// Multiple reply texts — one is randomly selected when the rule fires.
+  /// Falls back to [replyText] when this list is empty (migration path).
+  @HiveField(10)
+  List<String> replies;
+
   Rule({
     required this.id,
     required this.triggerText,
@@ -51,12 +56,19 @@ class Rule extends HiveObject {
     required this.createdAt,
     required this.updatedAt,
     List<String>? triggerTexts,
-  }) : triggerTexts = triggerTexts ?? [];
+    List<String>? replies,
+  })  : triggerTexts = triggerTexts ?? [],
+        replies = replies ?? [];
 
   /// All active trigger texts: uses [triggerTexts] when populated,
   /// otherwise falls back to the legacy [triggerText].
   List<String> get effectiveTriggers =>
       triggerTexts.isNotEmpty ? triggerTexts : [triggerText];
+
+  /// All active reply texts: uses [replies] when populated,
+  /// otherwise falls back to the legacy [replyText].
+  List<String> get effectiveReplies =>
+      replies.isNotEmpty ? replies : [replyText];
 
   /// Check if a message matches this rule
   bool matches(String message) {
@@ -77,6 +89,7 @@ class Rule extends HiveObject {
       'triggerText': triggerText,
       'triggerTexts': triggerTexts,
       'replyText': replyText,
+      'replies': replies,
       'exactMatch': exactMatch,
       'containsMatch': containsMatch,
       'caseSensitive': caseSensitive,
@@ -88,14 +101,19 @@ class Rule extends HiveObject {
 
   /// Create from JSON
   factory Rule.fromJson(Map<String, dynamic> json) {
-    final rawList = json['triggerTexts'];
-    final List<String> triggers = rawList is List
-        ? rawList.map((e) => e.toString()).toList()
+    final rawTriggers = json['triggerTexts'];
+    final List<String> triggers = rawTriggers is List
+        ? rawTriggers.map((e) => e.toString()).toList()
+        : <String>[];
+    final rawReplies = json['replies'];
+    final List<String> replyList = rawReplies is List
+        ? rawReplies.map((e) => e.toString()).toList()
         : <String>[];
     return Rule(
       id: json['id'],
       triggerText: json['triggerText'] ?? '',
-      replyText: json['replyText'],
+      replyText: json['replyText'] ?? '',
+      replies: replyList,
       exactMatch: json['exactMatch'] ?? false,
       containsMatch: json['containsMatch'] ?? true,
       caseSensitive: json['caseSensitive'] ?? false,
@@ -112,6 +130,7 @@ class Rule extends HiveObject {
     String? triggerText,
     List<String>? triggerTexts,
     String? replyText,
+    List<String>? replies,
     bool? exactMatch,
     bool? containsMatch,
     bool? caseSensitive,
@@ -124,6 +143,7 @@ class Rule extends HiveObject {
       triggerText: triggerText ?? this.triggerText,
       triggerTexts: triggerTexts ?? List.from(this.triggerTexts),
       replyText: replyText ?? this.replyText,
+      replies: replies ?? List.from(this.replies),
       exactMatch: exactMatch ?? this.exactMatch,
       containsMatch: containsMatch ?? this.containsMatch,
       caseSensitive: caseSensitive ?? this.caseSensitive,

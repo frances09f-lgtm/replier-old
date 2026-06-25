@@ -17,6 +17,14 @@ class GroqAiService {
         private const val MODEL = "llama-3.3-70b-versatile"
     }
 
+    data class AiUsage(
+        val tokensUsed: Int = 0,
+        val tokensRemaining: Int = 0,
+        val tokensLimit: Int = 0,
+        val resetInSeconds: Int = 0,
+        val error: String? = null
+    )
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -28,7 +36,7 @@ class GroqAiService {
         senderName: String,
         incomingMessage: String,
         systemPrompt: String,
-        callback: (String?) -> Unit
+        callback: (String?, AiUsage?) -> Unit
     ) {
         val messagesArray = JSONArray().apply {
             put(JSONObject().apply {
@@ -58,14 +66,18 @@ class GroqAiService {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e(TAG, "Groq API call failed", e)
-                callback(null)
+                callback(null, null)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
+                    val usage = parseUsageHeaders(response)
+
                     if (!response.isSuccessful) {
-                        Log.e(TAG, "Groq API error: ${response.code} ${response.body?.string()}")
-                        callback(null)
+                        val errorBody = response.body?.string() ?: ""
+                        Log.e(TAG, "Groq API error: ${response.code} $errorBody")
+                        val errorUsage = parseErrorBody(errorBody, response.code)
+                        callback(null, errorUsage)
                         return
                     }
 
@@ -78,16 +90,60 @@ class GroqAiService {
                                 .getJSONObject("message")
                                 .getString("content")
                                 .trim()
-                            callback(content)
+                            callback(content, usage)
                         } else {
-                            callback(null)
+                            callback(null, usage)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to parse Groq response", e)
-                        callback(null)
+                        callback(null, usage)
                     }
                 }
             }
         })
+    }
+
+    private fun parseUsageHeaders(response: Response): AiUsage {
+        val limit = response.header("x-ratelimit-limit-tokens")?.toIntOrNull() ?: 0
+        val remaining = response.header("x-ratelimit-remaining-tokens")?.toIntOrNull() ?: 0
+        val resetSeconds = response.header("x-ratelimit-reset-tokens")?.let { header ->
+            val match = Regex("(\\d+)(?:\\.\\d+)?s?").find(header)
+            match?.groupValues?.get(1)?.toIntOrNull() ?: 0
+        } ?: 0
+
+        return AiUsage(
+            tokensUsed = limit - remaining,
+            tokensRemaining = remaining,
+            tokensLimit = limit,
+            resetInSeconds = resetSeconds
+        )
+    }
+
+    private fun parseErrorBody(errorBody: String, statusCode: Int): AiUsage {
+        return try {
+            val json = JSONObject(errorBody)
+            val error = json.getJSONObject("error")
+            val message = error.getString("message")
+
+            // Parse rate limit error: "Limit 100000, Used 99141, Requested 1848. Please try again in 14m14.496s."
+            val limitMatch = Regex("Limit\\s+(\\d+)").find(message)
+            val usedMatch = Regex("Used\\s+(\\d+)").find(message)
+            val resetMatch = Regex("try again in (\\d+)m(\\d+\\.?\\d*)s").find(message)
+
+            val limit = limitMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val used = usedMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val resetMinutes = resetMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val resetSeconds = resetMatch?.groupValues?.get(2)?.toDoubleOrNull()?.toInt() ?: 0
+
+            AiUsage(
+                tokensUsed = used,
+                tokensRemaining = limit - used,
+                tokensLimit = limit,
+                resetInSeconds = resetMinutes * 60 + resetSeconds,
+                error = message
+            )
+        } catch (e: Exception) {
+            AiUsage(error = errorBody)
+        }
     }
 }

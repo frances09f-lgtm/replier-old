@@ -28,13 +28,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       );
     }
 
-    // Initialize in background after navigation
+    // Refresh rules to sync with native side on startup
     try {
-      await ref.read(rulesProvider.notifier).addSampleRules();
       await ref.read(rulesProvider.notifier).refreshRules();
     } catch (e) {
-      print('Error during background initialization: $e');
+      print('Error refreshing rules on startup: $e');
     }
+
+
   }
 
   @override

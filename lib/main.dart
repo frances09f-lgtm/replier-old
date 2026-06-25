@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/hive_config.dart';
 import 'core/injection_container.dart';
+import 'core/provider_container.dart';
 import 'providers/settings_provider.dart';
 import 'repositories/log_repository.dart';
 import 'repositories/rule_repository.dart';
@@ -21,11 +22,13 @@ void main() async {
   AutoReplyService(
     ruleRepository: RuleRepository(),
     logRepository: LogRepository(),
+    providerContainer: globalProviderContainer,
   ).initialize();
 
   runApp(
-    const ProviderScope(
-      child: MyApp(),
+    UncontrolledProviderScope(
+      container: globalProviderContainer,
+      child: const MyApp(),
     ),
   );
 }

@@ -130,7 +130,22 @@ class AppNotificationListenerService : NotificationListenerService() {
                     senderName = title,
                     incomingMessage = message,
                     systemPrompt = ruleEngine.getAiSystemPrompt()
-                ) { aiReply ->
+                ) { aiReply, usage ->
+                    // Forward usage data to Flutter
+                    if (usage != null) {
+                        ruleEngine.saveAiUsage(usage.tokensUsed, usage.tokensRemaining, usage.tokensLimit, usage.resetInSeconds, usage.error)
+                        val usageData = org.json.JSONObject().apply {
+                            put("tokensUsed", usage.tokensUsed)
+                            put("tokensRemaining", usage.tokensRemaining)
+                            put("tokensLimit", usage.tokensLimit)
+                            put("resetInSeconds", usage.resetInSeconds)
+                            put("error", usage.error ?: "")
+                        }
+                        mainHandler.post {
+                            methodChannel?.invokeMethod("onAiUsageUpdate", usageData.toString())
+                        }
+                    }
+
                     if (aiReply != null && aiReply.isNotBlank()) {
                         val delayMs = ruleEngine.getReplyDelayMs()
                         mainHandler.postDelayed({
@@ -146,7 +161,7 @@ class AppNotificationListenerService : NotificationListenerService() {
             return
         }
 
-        val replyText = rule.replyText
+        val replyText = rule.randomReply()
 
         // Duplicate prevention
         if (ruleEngine.shouldPreventDuplicates() &&

@@ -148,8 +148,10 @@ class _RuleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final triggers = rule.effectiveTriggers;
+    final replies = rule.effectiveReplies;
     final triggerLabel =
         triggers.length == 1 ? triggers.first : triggers.join(' · ');
+    final replyLabel = replies.length == 1 ? replies.first : replies.join(' · ');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -180,10 +182,21 @@ class _RuleCard extends StatelessWidget {
                   ),
                 ),
               ),
-            Text('→ ${rule.replyText}'),
+            Text('→ $replyLabel'),
+            if (replies.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '${replies.length} replies (random)',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context).colorScheme.secondary,
+                  ),
+                ),
+              ),
           ],
         ),
-        isThreeLine: triggers.length > 1,
+        isThreeLine: triggers.length > 1 || replies.length > 1,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
