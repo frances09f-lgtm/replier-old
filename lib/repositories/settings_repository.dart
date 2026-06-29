@@ -119,6 +119,51 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
+  /// Update AI model type (groq / local)
+  Future<void> updateAiModelType(String modelType) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(aiModelType: modelType);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update local model path
+  Future<void> updateLocalModelPath(String path) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      localModelPath: path,
+      localModelDownloaded: path.isNotEmpty,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Mark local model as downloaded
+  Future<void> setLocalModelDownloaded(bool downloaded) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(localModelDownloaded: downloaded);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Hugging Face token
+  Future<void> updateHfToken(String token) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(hfToken: token);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Gemini API key
+  Future<void> updateGeminiApiKey(String apiKey) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(geminiApiKey: apiKey);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Gemini model
+  Future<void> updateGeminiModel(String model) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(geminiModel: model);
+    await updateSettings(updatedSettings);
+  }
+
   /// Update AI system prompt
   Future<void> updateAiSystemPrompt(String prompt) async {
     final settings = getSettings();

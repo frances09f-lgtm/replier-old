@@ -6,6 +6,7 @@ import '../providers/statistics_provider.dart';
 import '../providers/log_provider.dart';
 import '../providers/rule_provider.dart';
 import '../providers/ai_usage_provider.dart';
+import '../providers/reply_countdown_provider.dart';
 import 'rules_screen.dart';
 import 'logs_screen.dart';
 import 'settings_screen.dart';
@@ -19,6 +20,7 @@ class DashboardScreen extends ConsumerWidget {
     final settings = ref.watch(appSettingsProvider);
     final stats = ref.watch(dashboardStatsProvider);
     final aiUsage = ref.watch(aiUsageProvider);
+    final replyCountdown = ref.watch(replyCountdownProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -66,7 +68,7 @@ class DashboardScreen extends ConsumerWidget {
                     ),
               ),
               const SizedBox(height: 16),
-              _buildStatsGrid(context, stats),
+              _buildStatsGrid(context, stats, replyCountdown),
               const SizedBox(height: 24),
 
               // AI Usage section (only show if AI is enabled)
@@ -136,11 +138,10 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatsGrid(BuildContext context, Map<String, dynamic> stats) {
+  Widget _buildStatsGrid(BuildContext context, Map<String, dynamic> stats, ReplyCountdownData countdown) {
     final totalNotifications = stats['totalNotificationsReceived'] as int? ?? 0;
     final totalReplies = stats['totalRepliesSent'] as int? ?? 0;
     final activeRules = stats['activeRulesCount'] as int? ?? 0;
-    final lastReply = stats['lastReplySent'] as DateTime?;
 
     return Column(
       children: [
@@ -178,12 +179,14 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _StatCard(
-                icon: Icons.access_time,
-                label: 'Last Reply',
-                value: _formatLastReply(lastReply),
-                color: Colors.purple,
-              ),
+              child: countdown.isActive
+                  ? _buildReplyCountdown(context, countdown)
+                  : _StatCard(
+                      icon: Icons.access_time,
+                      label: 'Last Reply',
+                      value: _formatLastReply(stats['lastReplySent'] as DateTime?),
+                      color: Colors.purple,
+                    ),
             ),
           ],
         ),
@@ -199,6 +202,66 @@ class DashboardScreen extends ConsumerWidget {
     if (diff.inHours < 1) return '${diff.inMinutes}m ago';
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
+  }
+
+  Widget _buildReplyCountdown(BuildContext context, ReplyCountdownData countdown) {
+    return Card(
+      color: Colors.teal.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                value: countdown.progress,
+                valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
+                backgroundColor: Colors.teal.shade100,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              countdown.remainingFormatted,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.teal.shade700,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Replying to',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.teal.shade600,
+                  ),
+            ),
+            Text(
+              countdown.sender,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.teal.shade800,
+                  ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
+            const SizedBox(height: 8),
+            if (countdown.replyText.isNotEmpty)
+              Text(
+                '"${countdown.replyText}"',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.teal.shade900,
+                      fontStyle: FontStyle.italic,
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildAiUsageCard(BuildContext context, AiUsageData aiUsage, AppSettings settings) {
@@ -219,13 +282,18 @@ class DashboardScreen extends ConsumerWidget {
                   size: 24,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  'Groq AI (Llama 3.3)',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                Expanded(
+                  child: Text(
+                    settings.aiModelType == 'gemini'
+                        ? 'Gemini AI (${settings.geminiModel.replaceAll('gemini-', 'Gemini ').replaceAll('-', '.')})'
+                        : 'Groq AI (Llama 3.3)',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 if (aiUsage.isRateLimited)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

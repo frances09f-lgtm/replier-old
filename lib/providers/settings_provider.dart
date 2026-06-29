@@ -112,6 +112,48 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
+  Future<void> updateAiModelType(String modelType) async {
+    await _repository.updateAiModelType(modelType);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateLocalModelPath(String path) async {
+    await _repository.updateLocalModelPath(path);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> setLocalModelDownloaded(bool downloaded) async {
+    await _repository.setLocalModelDownloaded(downloaded);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateHfToken(String token) async {
+    await _repository.updateHfToken(token);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateGeminiApiKey(String apiKey) async {
+    await _repository.updateGeminiApiKey(apiKey);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateGeminiModel(String model) async {
+    await _repository.updateGeminiModel(model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
   Future<void> updateAiSystemPrompt(String prompt) async {
     await _repository.updateAiSystemPrompt(prompt);
     final s = _repository.getSettings();

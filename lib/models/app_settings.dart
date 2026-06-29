@@ -42,6 +42,24 @@ class AppSettings extends HiveObject {
   @HiveField(12)
   String aiSystemPrompt;
 
+  @HiveField(13)
+  String aiModelType;
+
+  @HiveField(14)
+  String localModelPath;
+
+  @HiveField(15)
+  bool localModelDownloaded;
+
+  @HiveField(16)
+  String hfToken;
+
+  @HiveField(17)
+  String geminiApiKey;
+
+  @HiveField(18)
+  String geminiModel;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
@@ -54,6 +72,12 @@ class AppSettings extends HiveObject {
     this.aiReplyEnabled = false,
     this.groqApiKey = '',
     this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
+    this.aiModelType = 'groq',
+    this.localModelPath = '',
+    this.localModelDownloaded = false,
+    this.hfToken = '',
+    this.geminiApiKey = '',
+    this.geminiModel = 'gemini-2.0-flash',
     required this.lastUpdated,
   });
 
@@ -69,7 +93,13 @@ class AppSettings extends HiveObject {
       'ignoreGroupChats': ignoreGroupChats,
       'darkMode': darkMode,
       'aiReplyEnabled': aiReplyEnabled,
+      'aiModelType': aiModelType,
       'groqApiKey': groqApiKey,
+      'localModelPath': localModelPath,
+      'localModelDownloaded': localModelDownloaded,
+      'hfToken': hfToken,
+      'geminiApiKey': geminiApiKey,
+      'geminiModel': geminiModel,
       'aiSystemPrompt': aiSystemPrompt,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
@@ -87,7 +117,13 @@ class AppSettings extends HiveObject {
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
       aiReplyEnabled: json['aiReplyEnabled'] ?? false,
+      aiModelType: (json['aiModelType'] as String?) ?? 'groq',
       groqApiKey: json['groqApiKey'] ?? '',
+      localModelPath: json['localModelPath'] ?? '',
+      localModelDownloaded: json['localModelDownloaded'] ?? false,
+      hfToken: (json['hfToken'] as String?) ?? '',
+      geminiApiKey: (json['geminiApiKey'] as String?) ?? '',
+      geminiModel: (json['geminiModel'] as String?) ?? 'gemini-2.0-flash',
       aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
@@ -104,7 +140,13 @@ class AppSettings extends HiveObject {
     bool? ignoreGroupChats,
     bool? darkMode,
     bool? aiReplyEnabled,
+    String? aiModelType,
     String? groqApiKey,
+    String? localModelPath,
+    bool? localModelDownloaded,
+    String? hfToken,
+    String? geminiApiKey,
+    String? geminiModel,
     String? aiSystemPrompt,
     DateTime? lastUpdated,
   }) {
@@ -118,7 +160,13 @@ class AppSettings extends HiveObject {
       ignoreGroupChats: ignoreGroupChats ?? this.ignoreGroupChats,
       darkMode: darkMode ?? this.darkMode,
       aiReplyEnabled: aiReplyEnabled ?? this.aiReplyEnabled,
+      aiModelType: aiModelType ?? this.aiModelType,
       groqApiKey: groqApiKey ?? this.groqApiKey,
+      localModelPath: localModelPath ?? this.localModelPath,
+      localModelDownloaded: localModelDownloaded ?? this.localModelDownloaded,
+      hfToken: hfToken ?? this.hfToken,
+      geminiApiKey: geminiApiKey ?? this.geminiApiKey,
+      geminiModel: geminiModel ?? this.geminiModel,
       aiSystemPrompt: aiSystemPrompt ?? this.aiSystemPrompt,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );

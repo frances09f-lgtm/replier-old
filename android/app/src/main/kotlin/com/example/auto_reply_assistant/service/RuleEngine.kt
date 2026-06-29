@@ -249,12 +249,52 @@ class RuleEngine(private val context: Context) {
         return prefs.getBoolean("ai_reply_enabled", false)
     }
 
+    fun getAiModelType(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("aiModelType", "groq")
+        } catch (_: Exception) {}
+        return prefs.getString("ai_model_type", "groq") ?: "groq"
+    }
+
     fun getGroqApiKey(): String {
         try {
             val json = readSettingsJson()
             if (json != "{}") return JSONObject(json).optString("groqApiKey", "")
         } catch (_: Exception) {}
         return prefs.getString("groq_api_key", "") ?: ""
+    }
+
+    fun getGeminiApiKey(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("geminiApiKey", "")
+        } catch (_: Exception) {}
+        return prefs.getString("gemini_api_key", "") ?: ""
+    }
+
+    fun getGeminiModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("geminiModel", "gemini-2.0-flash")
+        } catch (_: Exception) {}
+        return prefs.getString("gemini_model", "gemini-2.0-flash") ?: "gemini-2.0-flash"
+    }
+
+    fun getLocalModelPath(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("localModelPath", "")
+        } catch (_: Exception) {}
+        return prefs.getString("local_model_path", "") ?: ""
+    }
+
+    fun isLocalModelDownloaded(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optBoolean("localModelDownloaded", false)
+        } catch (_: Exception) {}
+        return prefs.getBoolean("local_model_downloaded", false)
     }
 
     fun getAiSystemPrompt(): String {
@@ -349,7 +389,12 @@ class RuleEngine(private val context: Context) {
                 .putInt(KEY_MAX_REPLY_DELAY_SECONDS, obj.optInt("maxReplyDelaySeconds", 10))
                 .putBoolean(KEY_PREVENT_DUPLICATES, obj.optBoolean("preventDuplicateReplies", true))
                 .putBoolean("ai_reply_enabled", obj.optBoolean("aiReplyEnabled", false))
+                .putString("ai_model_type", obj.optString("aiModelType", "groq"))
                 .putString("groq_api_key", obj.optString("groqApiKey", ""))
+                .putString("gemini_api_key", obj.optString("geminiApiKey", ""))
+                .putString("gemini_model", obj.optString("geminiModel", "gemini-2.0-flash"))
+                .putString("local_model_path", obj.optString("localModelPath", ""))
+                .putBoolean("local_model_downloaded", obj.optBoolean("localModelDownloaded", false))
                 .putString("ai_system_prompt", obj.optString("aiSystemPrompt",
                     "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational."))
                 .commit()

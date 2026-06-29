@@ -25,9 +25,15 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       preventDuplicateReplies: fields[4] as bool,
       ignoreGroupChats: fields[5] as bool,
       darkMode: fields[6] as bool,
-      aiReplyEnabled: fields[10] != null ? fields[10] as bool : false,
-      groqApiKey: fields[11] != null ? fields[11] as String : '',
-      aiSystemPrompt: fields[12] != null ? fields[12] as String : 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
+      aiReplyEnabled: fields[10] as bool,
+      groqApiKey: fields[11] as String,
+      aiSystemPrompt: fields[12] as String,
+      aiModelType: fields[13] != null ? fields[13] as String : 'groq',
+      localModelPath: fields[14] != null ? fields[14] as String : '',
+      localModelDownloaded: fields[15] != null ? fields[15] as bool : false,
+      hfToken: fields[16] != null ? fields[16] as String : '',
+      geminiApiKey: fields[17] != null ? fields[17] as String : '',
+      geminiModel: fields[18] != null ? fields[18] as String : 'gemini-2.0-flash',
       lastUpdated: fields[7] as DateTime,
     );
   }
@@ -35,7 +41,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(18)
       ..writeByte(0)
       ..write(obj.masterEnabled)
       ..writeByte(1)
@@ -59,7 +65,19 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(11)
       ..write(obj.groqApiKey)
       ..writeByte(12)
-      ..write(obj.aiSystemPrompt);
+      ..write(obj.aiSystemPrompt)
+      ..writeByte(13)
+      ..write(obj.aiModelType)
+      ..writeByte(14)
+      ..write(obj.localModelPath)
+      ..writeByte(15)
+      ..write(obj.localModelDownloaded)
+      ..writeByte(16)
+      ..write(obj.hfToken)
+      ..writeByte(17)
+      ..write(obj.geminiApiKey)
+      ..writeByte(18)
+      ..write(obj.geminiModel);
   }
 
   @override

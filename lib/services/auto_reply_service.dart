@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,6 +25,12 @@ class AutoReplyService {
 
   /// Callback for AI usage updates
   static Function(Map<String, dynamic>)? onAiUsageUpdate;
+
+  /// Callback for reply scheduled (countdown)
+  static Function(Map<String, dynamic>)? onReplyScheduled;
+
+  /// Callback for reply completed (sent or failed)
+  static VoidCallback? onReplyCompleted;
 
   AutoReplyService({
     required RuleRepository ruleRepository,
@@ -57,8 +64,21 @@ class AutoReplyService {
         break;
       case 'onReplyFailed':
         print('AutoReplyService: reply failed — ${call.arguments}');
+        onReplyCompleted?.call();
         break;
       case 'onReplySuccess':
+        if (_instance != null && call.arguments != null) {
+          final data = json.decode(call.arguments as String) as Map<String, dynamic>;
+          await _instance!._logReply(data);
+        }
+        onReplyCompleted?.call();
+        break;
+      case 'onReplyScheduled':
+        if (call.arguments != null) {
+          final data = json.decode(call.arguments as String) as Map<String, dynamic>;
+          onReplyScheduled?.call(data);
+        }
+        break;
       case 'onNotificationRemoved':
       case 'useAccessibilityService':
         break;
@@ -81,6 +101,7 @@ class AutoReplyService {
       // Track every notification received (only for actual external messages)
       await _logRepository.incrementNotificationsReceived();
 
+      // For rule-based replies, create the log here
       final rule = _ruleRepository.findMatchingRule(notification.message);
       if (rule == null) return;
 
@@ -93,14 +114,35 @@ class AutoReplyService {
       );
       await _logRepository.addLog(log);
 
-      // Notify the Riverpod logs provider AFTER adding the log so dashboard
-      // shows the updated "Replies Sent" count and "Last Reply" time.
       if (_providerContainer != null) {
         final notifier = _providerContainer!.read(logsProvider.notifier);
         await notifier.refreshLogs();
       }
     } catch (e) {
       print('AutoReplyService logging error: $e');
+    }
+  }
+
+  Future<void> _logReply(Map<String, dynamic> data) async {
+    try {
+      // Only log AI replies here (rule-based replies are logged in _maybeLog)
+      if (data['isAiReply'] != true) return;
+
+      final log = _logRepository.createLog(
+        sender: data['sender'] ?? '',
+        originalMessage: 'AI Generated Reply',
+        autoReplySent: data['replyText'] ?? '',
+        appName: data['appName'] ?? '',
+        ruleId: '',
+      );
+      await _logRepository.addLog(log);
+
+      if (_providerContainer != null) {
+        final notifier = _providerContainer!.read(logsProvider.notifier);
+        await notifier.refreshLogs();
+      }
+    } catch (e) {
+      print('AutoReplyService reply logging error: $e');
     }
   }
 }
