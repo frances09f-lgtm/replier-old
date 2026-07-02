@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/default_rules.dart';
 import '../providers/rule_provider.dart';
 import 'dashboard_screen.dart';
 
@@ -30,7 +31,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     // Refresh rules to sync with native side on startup
     try {
-      await ref.read(rulesProvider.notifier).refreshRules();
+      final notifier = ref.read(rulesProvider.notifier);
+
+      // Load default rules on first launch
+      if (!notifier.hasDefaultRules()) {
+        for (final rule in defaultRules) {
+          await notifier.addRule(rule);
+        }
+      } else {
+        await notifier.refreshRules();
+      }
     } catch (e) {
       print('Error refreshing rules on startup: $e');
     }

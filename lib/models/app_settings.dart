@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:hive/hive.dart';
 
 part 'app_settings.g.dart';
@@ -45,20 +46,29 @@ class AppSettings extends HiveObject {
   @HiveField(13)
   String aiModelType;
 
-  @HiveField(14)
-  String localModelPath;
-
-  @HiveField(15)
-  bool localModelDownloaded;
-
   @HiveField(16)
-  String hfToken;
+  String cerebrasApiKey;
 
   @HiveField(17)
   String geminiApiKey;
 
+  @HiveField(23)
+  String geminiApiKeysJson;
+
   @HiveField(18)
-  String geminiModel;
+  bool scheduleEnabled;
+
+  @HiveField(19)
+  int scheduleStartHour;
+
+  @HiveField(20)
+  int scheduleStartMinute;
+
+  @HiveField(21)
+  int scheduleEndHour;
+
+  @HiveField(22)
+  int scheduleEndMinute;
 
   AppSettings({
     this.masterEnabled = true,
@@ -73,13 +83,32 @@ class AppSettings extends HiveObject {
     this.groqApiKey = '',
     this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
     this.aiModelType = 'groq',
-    this.localModelPath = '',
-    this.localModelDownloaded = false,
-    this.hfToken = '',
+    this.cerebrasApiKey = '',
     this.geminiApiKey = '',
-    this.geminiModel = 'gemini-2.0-flash',
+    this.geminiApiKeysJson = '[]',
+    this.scheduleEnabled = false,
+    this.scheduleStartHour = 8,
+    this.scheduleStartMinute = 0,
+    this.scheduleEndHour = 22,
+    this.scheduleEndMinute = 0,
     required this.lastUpdated,
   });
+
+  /// Returns the list of Gemini API keys.
+  /// Falls back to [geminiApiKey] if the list is empty (backward compat).
+  List<String> get geminiApiKeys {
+    try {
+      final list = (jsonDecode(geminiApiKeysJson) as List).cast<String>();
+      if (list.isNotEmpty) return list;
+    } catch (_) {}
+    if (geminiApiKey.isNotEmpty) return [geminiApiKey];
+    return [];
+  }
+
+  /// Set the list of Gemini API keys (persists as JSON string).
+  set geminiApiKeys(List<String> keys) {
+    geminiApiKeysJson = jsonEncode(keys);
+  }
 
   /// Convert to JSON
   Map<String, dynamic> toJson() {
@@ -95,12 +124,15 @@ class AppSettings extends HiveObject {
       'aiReplyEnabled': aiReplyEnabled,
       'aiModelType': aiModelType,
       'groqApiKey': groqApiKey,
-      'localModelPath': localModelPath,
-      'localModelDownloaded': localModelDownloaded,
-      'hfToken': hfToken,
+      'cerebrasApiKey': cerebrasApiKey,
       'geminiApiKey': geminiApiKey,
-      'geminiModel': geminiModel,
+      'geminiApiKeysJson': geminiApiKeysJson,
       'aiSystemPrompt': aiSystemPrompt,
+      'scheduleEnabled': scheduleEnabled,
+      'scheduleStartHour': scheduleStartHour,
+      'scheduleStartMinute': scheduleStartMinute,
+      'scheduleEndHour': scheduleEndHour,
+      'scheduleEndMinute': scheduleEndMinute,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -119,12 +151,15 @@ class AppSettings extends HiveObject {
       aiReplyEnabled: json['aiReplyEnabled'] ?? false,
       aiModelType: (json['aiModelType'] as String?) ?? 'groq',
       groqApiKey: json['groqApiKey'] ?? '',
-      localModelPath: json['localModelPath'] ?? '',
-      localModelDownloaded: json['localModelDownloaded'] ?? false,
-      hfToken: (json['hfToken'] as String?) ?? '',
+      cerebrasApiKey: (json['cerebrasApiKey'] as String?) ?? '',
       geminiApiKey: (json['geminiApiKey'] as String?) ?? '',
-      geminiModel: (json['geminiModel'] as String?) ?? 'gemini-2.0-flash',
+      geminiApiKeysJson: (json['geminiApiKeysJson'] as String?) ?? '[]',
       aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
+      scheduleEnabled: json['scheduleEnabled'] ?? false,
+      scheduleStartHour: json['scheduleStartHour'] ?? 8,
+      scheduleStartMinute: json['scheduleStartMinute'] ?? 0,
+      scheduleEndHour: json['scheduleEndHour'] ?? 22,
+      scheduleEndMinute: json['scheduleEndMinute'] ?? 0,
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -142,12 +177,15 @@ class AppSettings extends HiveObject {
     bool? aiReplyEnabled,
     String? aiModelType,
     String? groqApiKey,
-    String? localModelPath,
-    bool? localModelDownloaded,
-    String? hfToken,
+    String? cerebrasApiKey,
     String? geminiApiKey,
-    String? geminiModel,
+    String? geminiApiKeysJson,
     String? aiSystemPrompt,
+    bool? scheduleEnabled,
+    int? scheduleStartHour,
+    int? scheduleStartMinute,
+    int? scheduleEndHour,
+    int? scheduleEndMinute,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -162,13 +200,35 @@ class AppSettings extends HiveObject {
       aiReplyEnabled: aiReplyEnabled ?? this.aiReplyEnabled,
       aiModelType: aiModelType ?? this.aiModelType,
       groqApiKey: groqApiKey ?? this.groqApiKey,
-      localModelPath: localModelPath ?? this.localModelPath,
-      localModelDownloaded: localModelDownloaded ?? this.localModelDownloaded,
-      hfToken: hfToken ?? this.hfToken,
+      cerebrasApiKey: cerebrasApiKey ?? this.cerebrasApiKey,
       geminiApiKey: geminiApiKey ?? this.geminiApiKey,
-      geminiModel: geminiModel ?? this.geminiModel,
+      geminiApiKeysJson: geminiApiKeysJson ?? this.geminiApiKeysJson,
       aiSystemPrompt: aiSystemPrompt ?? this.aiSystemPrompt,
+      scheduleEnabled: scheduleEnabled ?? this.scheduleEnabled,
+      scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
+      scheduleStartMinute: scheduleStartMinute ?? this.scheduleStartMinute,
+      scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
+      scheduleEndMinute: scheduleEndMinute ?? this.scheduleEndMinute,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
+  }
+
+  /// Check if the current time is within the schedule window.
+  /// Supports overnight windows (e.g., 10 PM to 6 AM).
+  bool isWithinSchedule() {
+    if (!scheduleEnabled) return true;
+
+    final now = DateTime.now();
+    final currentMinutes = now.hour * 60 + now.minute;
+    final startMinutes = scheduleStartHour * 60 + scheduleStartMinute;
+    final endMinutes = scheduleEndHour * 60 + scheduleEndMinute;
+
+    if (startMinutes <= endMinutes) {
+      // Same-day window (e.g., 8:00 - 22:00)
+      return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    } else {
+      // Overnight window (e.g., 22:00 - 6:00)
+      return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+    }
   }
 }

@@ -58,6 +58,19 @@ class DashboardScreen extends ConsumerWidget {
                   },
                 ),
               ),
+
+              // Reply delay badge
+              if (settings.masterEnabled) ...[
+                const SizedBox(height: 12),
+                _buildReplyDelayBadge(context, settings, replyCountdown),
+              ],
+
+              // Schedule status badge
+              if (settings.scheduleEnabled) ...[
+                const SizedBox(height: 12),
+                _buildScheduleBadge(context, settings),
+              ],
+
               const SizedBox(height: 24),
 
               // Statistics section
@@ -68,7 +81,7 @@ class DashboardScreen extends ConsumerWidget {
                     ),
               ),
               const SizedBox(height: 16),
-              _buildStatsGrid(context, stats, replyCountdown),
+              _buildStatsGrid(context, ref, stats),
               const SizedBox(height: 24),
 
               // AI Usage section (only show if AI is enabled)
@@ -138,7 +151,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatsGrid(BuildContext context, Map<String, dynamic> stats, ReplyCountdownData countdown) {
+  Widget _buildStatsGrid(BuildContext context, WidgetRef ref, Map<String, dynamic> stats) {
     final totalNotifications = stats['totalNotificationsReceived'] as int? ?? 0;
     final totalReplies = stats['totalRepliesSent'] as int? ?? 0;
     final activeRules = stats['activeRulesCount'] as int? ?? 0;
@@ -162,6 +175,7 @@ class DashboardScreen extends ConsumerWidget {
                 label: 'Replies Sent',
                 value: totalReplies.toString(),
                 color: Colors.green,
+                onTap: () => _showAiReplyBreakdown(context, ref),
               ),
             ),
           ],
@@ -179,14 +193,12 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: countdown.isActive
-                  ? _buildReplyCountdown(context, countdown)
-                  : _StatCard(
-                      icon: Icons.access_time,
-                      label: 'Last Reply',
-                      value: _formatLastReply(stats['lastReplySent'] as DateTime?),
-                      color: Colors.purple,
-                    ),
+              child: _StatCard(
+                icon: Icons.access_time,
+                label: 'Last Reply',
+                value: _formatLastReply(stats['lastReplySent'] as DateTime?),
+                color: Colors.purple,
+              ),
             ),
           ],
         ),
@@ -204,62 +216,264 @@ class DashboardScreen extends ConsumerWidget {
     return '${diff.inDays}d ago';
   }
 
-  Widget _buildReplyCountdown(BuildContext context, ReplyCountdownData countdown) {
-    return Card(
-      color: Colors.teal.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(
-                strokeWidth: 3,
-                value: countdown.progress,
-                valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
-                backgroundColor: Colors.teal.shade100,
+  Widget _buildReplyDelayBadge(BuildContext context, AppSettings settings, ReplyCountdownData countdown) {
+    final min = settings.minReplyDelaySeconds;
+    final max = settings.maxReplyDelaySeconds;
+
+    if (countdown.isActive) {
+      return Card(
+        color: Colors.teal.shade50,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  value: countdown.progress,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
+                  backgroundColor: Colors.teal.shade100,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              countdown.remainingFormatted,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.teal.shade700,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Replying to',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.teal.shade600,
-                  ),
-            ),
-            Text(
-              countdown.sender,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: Colors.teal.shade800,
-                  ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-            const SizedBox(height: 8),
-            if (countdown.replyText.isNotEmpty)
-              Text(
-                '"${countdown.replyText}"',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.teal.shade900,
-                      fontStyle: FontStyle.italic,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Replying to ${countdown.sender}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.teal.shade800,
+                      ),
                     ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
+                    const SizedBox(height: 2),
+                    if (countdown.replyText.isNotEmpty)
+                      Text(
+                        '"${countdown.replyText}"',
+                        style: TextStyle(
+                          color: Colors.teal.shade600,
+                          fontSize: 12,
+                          fontStyle: FontStyle.italic,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                    else
+                      Text(
+                        countdown.remainingFormatted,
+                        style: TextStyle(
+                          color: Colors.teal.shade600,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
               ),
+              Text(
+                countdown.remainingFormatted,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.teal.shade700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      color: Colors.blue.shade50,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(Icons.timer, color: Colors.blue.shade700, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Reply Delay',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    min == max
+                        ? 'Fixed ${min}s delay before reply'
+                        : 'Random delay ${min}s – ${max}s before reply',
+                    style: TextStyle(
+                      color: Colors.blue.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildScheduleBadge(BuildContext context, AppSettings settings) {
+    final isWithin = settings.isWithinSchedule();
+    final startHour = settings.scheduleStartHour;
+    final startMin = settings.scheduleStartMinute;
+    final endHour = settings.scheduleEndHour;
+    final endMin = settings.scheduleEndMinute;
+
+    final startStr = _formatTime(startHour, startMin);
+    final endStr = _formatTime(endHour, endMin);
+
+    final color = isWithin ? Colors.green : Colors.orange;
+    final bgColor = isWithin ? Colors.green.shade50 : Colors.orange.shade50;
+    final icon = isWithin ? Icons.check_circle : Icons.pause_circle;
+    final statusText = isWithin ? 'Active' : 'Paused';
+    final detailText = isWithin
+        ? 'Auto-reply is active ($startStr - $endStr)'
+        : 'Auto-reply paused (outside $startStr - $endStr)';
+
+    return Card(
+      color: bgColor,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Schedule: $statusText',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: color.shade800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detailText,
+                    style: TextStyle(
+                      color: color.shade600,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatTime(int hour, int minute) {
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
+  }
+
+  void _showAiReplyBreakdown(BuildContext context, WidgetRef ref) {
+    final repository = ref.read(logRepositoryProvider);
+    final counts = repository.getAiReplyCounts();
+    final totalAi = counts.values.fold(0, (a, b) => a + b);
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'AI Replies Breakdown',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                "Today's AI replies: $totalAi",
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
+              ),
+              const SizedBox(height: 16),
+              if (counts.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text(
+                      'No AI replies recorded yet',
+                      style: TextStyle(color: Colors.grey.shade500),
+                    ),
+                  ),
+                )
+              else
+                ...counts.entries.map((entry) => _buildAiModelRow(context, entry.key, entry.value)),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAiModelRow(BuildContext context, String modelKey, int count) {
+    final (label, icon, color) = switch (modelKey) {
+      'gemini' => ('Google Gemini', Icons.auto_awesome, Colors.blue),
+      'cerebras' => ('Cerebras AI (GPT-OSS)', Icons.memory, Colors.orange),
+      'groq' => ('Groq AI (Llama 3.3)', Icons.smart_toy, Colors.teal),
+      _ => (modelKey, Icons.smart_toy, Colors.grey),
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+          ),
+          Text(
+            count.toString(),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+          ),
+        ],
       ),
     );
   }
@@ -285,8 +499,10 @@ class DashboardScreen extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     settings.aiModelType == 'gemini'
-                        ? 'Gemini AI (${settings.geminiModel.replaceAll('gemini-', 'Gemini ').replaceAll('-', '.')})'
-                        : 'Groq AI (Llama 3.3)',
+                        ? 'Google Gemini'
+                        : settings.aiModelType == 'cerebras'
+                            ? 'Cerebras AI (GPT-OSS)'
+                            : 'Groq AI (Llama 3.3)',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -314,60 +530,57 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 16),
 
-            // Usage progress bar
-            if (aiUsage.tokensLimit > 0) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Token Usage',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  Text(
-                    '${usagePercent.toStringAsFixed(1)}%',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: usagePercent / 100,
-                  backgroundColor: Colors.grey.shade200,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    usagePercent > 90 ? Colors.red : color,
-                  ),
-                  minHeight: 8,
+            // Usage info
+            if (aiUsage.tokensUsed > 0 && aiUsage.tokensLimit > 0) ...[
+              if (aiUsage.tokensRemaining > 0) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Token Usage', style: Theme.of(context).textTheme.bodyMedium),
+                    Text(
+                      '${usagePercent.toStringAsFixed(1)}%',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: usagePercent / 100,
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      usagePercent > 90 ? Colors.red : color,
+                    ),
+                    minHeight: 8,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               // Token counts
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _UsageStat(
-                    label: 'Used',
+                    label: settings.aiModelType == 'gemini' ? 'Prompt' : 'Used',
                     value: aiUsage.tokensUsed.toString(),
                     color: Colors.orange,
                   ),
                   _UsageStat(
-                    label: 'Remaining',
-                    value: aiUsage.tokensRemaining.toString(),
+                    label: settings.aiModelType == 'gemini' ? 'Output' : 'Remaining',
+                    value: (aiUsage.tokensLimit - aiUsage.tokensUsed).toString(),
                     color: Colors.green,
                   ),
                   _UsageStat(
-                    label: 'Limit',
+                    label: settings.aiModelType == 'gemini' ? 'Total' : 'Limit',
                     value: aiUsage.tokensLimit.toString(),
                     color: Colors.blue,
                   ),
                 ],
               ),
-
               // Reset time
               if (aiUsage.resetInSeconds > 0) ...[
                 const SizedBox(height: 12),
@@ -392,6 +605,25 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ),
               ],
+            ] else if (aiUsage.tokensUsed > 0) ...[
+              // Body-only usage (no rate limit info from headers)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.token, size: 20, color: color),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Tokens used: ${aiUsage.tokensUsed}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: color,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
             ] else ...[
               // No usage data yet
               Center(
@@ -448,37 +680,47 @@ class _StatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
+  final VoidCallback? onTap;
 
   const _StatCard({
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                  ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
-            ),
-          ],
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+              Icon(icon, color: color, size: 28),
+              const SizedBox(height: 8),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+              if (onTap != null) ...[
+                const SizedBox(height: 4),
+                Icon(Icons.info_outline, size: 14, color: color.withValues(alpha: 0.5)),
+              ],
+            ],
+          ),
         ),
       ),
     );

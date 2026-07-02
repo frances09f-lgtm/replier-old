@@ -70,13 +70,26 @@ class RulesNotifier extends StateNotifier<List<Rule>> {
     return _repository.findMatchingRule(message);
   }
 
+  /// Delete all default/built-in rules
+  Future<void> deleteDefaultRules() async {
+    await _repository.deleteDefaultRules();
+    state = _repository.getAllRules();
+    await _syncService.syncRules(state);
+  }
+
+  /// Check if default rules have been loaded
+  bool hasDefaultRules() {
+    return _repository.hasDefaultRules();
+  }
+
   Rule createRule({
     required String triggerText,
     required String replyText,
     List<String>? triggerTexts,
     List<String>? replies,
-    bool exactMatch = false,
-    bool containsMatch = true,
+    List<String>? senderNames,
+    bool exactMatch = true,
+    bool containsMatch = false,
     bool caseSensitive = false,
     bool isEnabled = true,
   }) {
@@ -85,6 +98,7 @@ class RulesNotifier extends StateNotifier<List<Rule>> {
       replyText: replyText,
       triggerTexts: triggerTexts,
       replies: replies,
+      senderNames: senderNames,
       exactMatch: exactMatch,
       containsMatch: containsMatch,
       caseSensitive: caseSensitive,

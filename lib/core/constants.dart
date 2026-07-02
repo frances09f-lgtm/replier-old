@@ -34,6 +34,13 @@ class AppConstants {
   static const String defaultHfToken = '';
   static const String defaultAiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.';
 
+  // Schedule defaults
+  static const bool defaultScheduleEnabled = false;
+  static const int defaultScheduleStartHour = 8;
+  static const int defaultScheduleStartMinute = 0;
+  static const int defaultScheduleEndHour = 22;
+  static const int defaultScheduleEndMinute = 0;
+
   // Storage limits
   static const int maxLogs = 1000;
 }

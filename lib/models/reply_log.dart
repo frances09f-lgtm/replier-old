@@ -27,6 +27,9 @@ class ReplyLog extends HiveObject {
   @HiveField(6)
   String ruleId;
 
+  @HiveField(7)
+  String aiModel;
+
   ReplyLog({
     required this.id,
     required this.sender,
@@ -35,6 +38,7 @@ class ReplyLog extends HiveObject {
     required this.appName,
     required this.dateTime,
     required this.ruleId,
+    this.aiModel = '',
   });
 
   /// Convert to JSON
@@ -47,6 +51,7 @@ class ReplyLog extends HiveObject {
       'appName': appName,
       'dateTime': dateTime.toIso8601String(),
       'ruleId': ruleId,
+      'aiModel': aiModel,
     };
   }
 
@@ -60,6 +65,7 @@ class ReplyLog extends HiveObject {
       appName: json['appName'],
       dateTime: DateTime.parse(json['dateTime']),
       ruleId: json['ruleId'],
+      aiModel: json['aiModel'] ?? '',
     );
   }
 
@@ -72,6 +78,7 @@ class ReplyLog extends HiveObject {
     String? appName,
     DateTime? dateTime,
     String? ruleId,
+    String? aiModel,
   }) {
     return ReplyLog(
       id: id ?? this.id,
@@ -81,6 +88,7 @@ class ReplyLog extends HiveObject {
       appName: appName ?? this.appName,
       dateTime: dateTime ?? this.dateTime,
       ruleId: ruleId ?? this.ruleId,
+      aiModel: aiModel ?? this.aiModel,
     );
   }
 }

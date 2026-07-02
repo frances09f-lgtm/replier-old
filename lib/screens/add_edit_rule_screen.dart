@@ -23,8 +23,11 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
   /// Each reply has its own controller.
   final List<TextEditingController> _replyControllers = [];
 
-  bool _exactMatch = false;
-  bool _containsMatch = true;
+  /// Each sender name has its own controller.
+  final List<TextEditingController> _senderControllers = [];
+
+  bool _exactMatch = true;
+  bool _containsMatch = false;
   bool _caseSensitive = false;
   bool _isEnabled = true;
 
@@ -32,8 +35,8 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
   void initState() {
     super.initState();
     final rule = widget.rule;
-    _exactMatch = rule?.exactMatch ?? false;
-    _containsMatch = rule?.containsMatch ?? true;
+    _exactMatch = rule?.exactMatch ?? true;
+    _containsMatch = rule?.containsMatch ?? false;
     _caseSensitive = rule?.caseSensitive ?? false;
     _isEnabled = rule?.isEnabled ?? true;
 
@@ -56,6 +59,16 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         _replyControllers.add(TextEditingController(text: r));
       }
     }
+
+    // Populate sender name controllers from existing rule
+    final senders = rule?.senderNames ?? [];
+    if (senders.isEmpty) {
+      _senderControllers.add(TextEditingController());
+    } else {
+      for (final s in senders) {
+        _senderControllers.add(TextEditingController(text: s));
+      }
+    }
   }
 
   @override
@@ -64,6 +77,9 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
       c.dispose();
     }
     for (final c in _replyControllers) {
+      c.dispose();
+    }
+    for (final c in _senderControllers) {
       c.dispose();
     }
     super.dispose();
@@ -97,6 +113,20 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
     });
   }
 
+  void _addSender() {
+    setState(() {
+      _senderControllers.add(TextEditingController());
+    });
+  }
+
+  void _removeSender(int index) {
+    if (_senderControllers.length == 1) return;
+    setState(() {
+      _senderControllers[index].dispose();
+      _senderControllers.removeAt(index);
+    });
+  }
+
   void _saveRule() {
     if (_formKey.currentState!.validate()) {
       _saveRuleAsync();
@@ -113,6 +143,10 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         .map((c) => c.text.trim())
         .where((r) => r.isNotEmpty)
         .toList();
+    final senders = _senderControllers
+        .map((c) => c.text.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
 
     final primaryTrigger = triggers.isNotEmpty ? triggers.first : '';
     final primaryReply = replies.isNotEmpty ? replies.first : '';
@@ -123,6 +157,7 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         triggerTexts: triggers,
         replyText: primaryReply,
         replies: replies,
+        senderNames: senders,
         exactMatch: _exactMatch,
         containsMatch: _containsMatch,
         caseSensitive: _caseSensitive,
@@ -135,6 +170,7 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
         triggerTexts: triggers,
         replyText: primaryReply,
         replies: replies,
+        senderNames: senders,
         exactMatch: _exactMatch,
         containsMatch: _containsMatch,
         caseSensitive: _caseSensitive,
@@ -284,6 +320,65 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
                         icon: Icon(Icons.remove_circle_outline,
                             color: colorScheme.error),
                         tooltip: 'Remove reply',
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            }),
+
+            const Divider(height: 32),
+
+            // ── Sender names section ──────────────────────────────────────
+            Row(
+              children: [
+                Text(
+                  'Specific Contacts',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _addSender,
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Leave empty to reply to everyone. Add names to reply only to specific contacts.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+            ),
+            const SizedBox(height: 12),
+
+            ...List.generate(_senderControllers.length, (i) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _senderControllers[i],
+                        decoration: InputDecoration(
+                          labelText: 'Contact ${i + 1}',
+                          hintText: 'e.g., John Doe',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.person, size: 18),
+                        ),
+                      ),
+                    ),
+                    if (_senderControllers.length > 1) ...[
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => _removeSender(i),
+                        icon: Icon(Icons.remove_circle_outline,
+                            color: colorScheme.error),
+                        tooltip: 'Remove contact',
                       ),
                     ],
                   ],

@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_settings.dart';
 import '../providers/settings_provider.dart';
-import '../services/model_download_service.dart';
 
 /// Screen for app settings
 class SettingsScreen extends ConsumerWidget {
@@ -119,7 +118,57 @@ class SettingsScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // AI Reply section
+          // Schedule section
+          Text(
+            'Schedule',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Set time windows when auto-reply is active',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          SwitchListTile(
+            title: const Text('Enable Schedule'),
+            subtitle: const Text('Auto-reply only during set hours'),
+            value: settings.scheduleEnabled,
+            onChanged: (_) {
+              ref.read(appSettingsProvider.notifier).updateSchedule(
+                enabled: !settings.scheduleEnabled,
+                startHour: settings.scheduleStartHour,
+                startMinute: settings.scheduleStartMinute,
+                endHour: settings.scheduleEndHour,
+                endMinute: settings.scheduleEndMinute,
+              );
+            },
+          ),
+
+          if (settings.scheduleEnabled) ...[
+            ListTile(
+              title: const Text('Start Time'),
+              subtitle: Text(_formatTime(settings.scheduleStartHour, settings.scheduleStartMinute)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showTimePickerDialog(
+                context, ref, settings, isStart: true,
+              ),
+            ),
+            ListTile(
+              title: const Text('End Time'),
+              subtitle: Text(_formatTime(settings.scheduleEndHour, settings.scheduleEndMinute)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showTimePickerDialog(
+                context, ref, settings, isStart: false,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 24),
           Text(
             'AI Auto-Reply',
             style: Theme.of(
@@ -128,10 +177,10 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            settings.aiModelType == 'local'
-                ? 'Runs on-device — no API key, no limits, fully offline'
-                : settings.aiModelType == 'gemini'
-                    ? 'Uses Google Gemini to generate replies when no rule matches'
+            settings.aiModelType == 'gemini'
+                ? 'Uses Google Gemini (1,500 req/day free) to generate replies when no rule matches'
+                : settings.aiModelType == 'cerebras'
+                    ? 'Uses Cerebras (ultra-fast inference) to generate replies when no rule matches'
                     : 'Uses Groq (free) to generate replies when no rule matches',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Colors.grey[600],
@@ -173,28 +222,28 @@ class SettingsScreen extends ConsumerWidget {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Radio<String>(
-                      value: 'local',
-                      groupValue: settings.aiModelType,
-                      onChanged: (v) {
-                        ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
-                      },
-                    ),
-                    title: const Text('Local Model (On-Device)'),
-                    subtitle: const Text('No API key, no limits, fully offline'),
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('local'),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Radio<String>(
                       value: 'gemini',
                       groupValue: settings.aiModelType,
                       onChanged: (v) {
                         ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
                       },
                     ),
-                    title: const Text('Google Gemini (Cloud)'),
-                    subtitle: const Text('Requires API key, free tier available'),
+                    title: const Text('Google Gemini'),
+                    subtitle: const Text('1,500 req/day free, 1M context'),
                     onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('gemini'),
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Radio<String>(
+                      value: 'cerebras',
+                      groupValue: settings.aiModelType,
+                      onChanged: (v) {
+                        ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
+                      },
+                    ),
+                    title: const Text('Cerebras API (Cloud)'),
+                    subtitle: const Text('Ultra-fast inference, free tier'),
+                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('cerebras'),
                   ),
                 ],
               ),
@@ -214,43 +263,20 @@ class SettingsScreen extends ConsumerWidget {
             ],
 
             if (settings.aiModelType == 'gemini') ...[
-              ListTile(
-                title: const Text('Gemini API Key'),
-                subtitle: Text(
-                  settings.geminiApiKey.isEmpty
-                      ? 'Not set (get free key at aistudio.google.com)'
-                      : '${settings.geminiApiKey.substring(0, 8)}...',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showGeminiApiKeyDialog(context, ref, settings.geminiApiKey),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: DropdownButtonFormField<String>(
-                  value: settings.geminiModel,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Gemini Model',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'gemini-2.0-flash', child: Text('Gemini 2.0 Flash (Recommended)')),
-                    DropdownMenuItem(value: 'gemini-2.0-flash-lite', child: Text('Gemini 2.0 Flash Lite (Faster)')),
-                    DropdownMenuItem(value: 'gemini-1.5-flash', child: Text('Gemini 1.5 Flash')),
-                    DropdownMenuItem(value: 'gemini-1.5-pro', child: Text('Gemini 1.5 Pro (Higher quality)')),
-                  ],
-                  onChanged: (v) {
-                    if (v != null) {
-                      ref.read(appSettingsProvider.notifier).updateGeminiModel(v);
-                    }
-                  },
-                ),
-              ),
+              _buildGeminiKeysSection(context, ref, settings),
             ],
 
-            if (settings.aiModelType == 'local') ...[
-              _LocalModelSection(settings: settings, ref: ref),
+            if (settings.aiModelType == 'cerebras') ...[
+              ListTile(
+                title: const Text('Cerebras API Key'),
+                subtitle: Text(
+                  settings.cerebrasApiKey.isEmpty
+                      ? 'Not set (get free key at cloud.cerebras.ai)'
+                      : '${settings.cerebrasApiKey.substring(0, 8)}...',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _showCerebrasApiKeyDialog(context, ref, settings.cerebrasApiKey),
+              ),
             ],
 
             ListTile(
@@ -324,12 +350,45 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
+  String _formatTime(int hour, int minute) {
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+    return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
+  }
+
+  void _showTimePickerDialog(
+    BuildContext context,
+    WidgetRef ref,
+    AppSettings settings, {
+    required bool isStart,
+  }) async {
+    final initialHour = isStart ? settings.scheduleStartHour : settings.scheduleEndHour;
+    final initialMinute = isStart ? settings.scheduleStartMinute : settings.scheduleEndMinute;
+
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: initialHour, minute: initialMinute),
+    );
+
+    if (picked != null) {
+      ref.read(appSettingsProvider.notifier).updateSchedule(
+        enabled: settings.scheduleEnabled,
+        startHour: isStart ? picked.hour : settings.scheduleStartHour,
+        startMinute: isStart ? picked.minute : settings.scheduleStartMinute,
+        endHour: isStart ? settings.scheduleEndHour : picked.hour,
+        endMinute: isStart ? settings.scheduleEndMinute : picked.minute,
+      );
+    }
+  }
+
   void _showReplyDelayDialog(
     BuildContext context,
     WidgetRef ref,
     int currentMin,
     int currentMax,
   ) {
+    final minController = TextEditingController(text: currentMin.toString());
+    final maxController = TextEditingController(text: currentMax.toString());
     int tempMin = currentMin;
     int tempMax = currentMax;
 
@@ -343,30 +402,34 @@ class SettingsScreen extends ConsumerWidget {
             children: [
               Text('Min: $tempMin s  |  Max: $tempMax s'),
               const SizedBox(height: 16),
-              const Text('Minimum delay:'),
-              Slider(
-                value: tempMin.toDouble(),
-                min: 0,
-                max: 300,
-                divisions: 300,
-                label: '${tempMin}s',
+              TextField(
+                controller: minController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Minimum delay (seconds)',
+                  border: OutlineInputBorder(),
+                  suffixText: 's',
+                ),
                 onChanged: (value) {
+                  final parsed = int.tryParse(value) ?? 0;
                   setDialogState(() {
-                    tempMin = value.toInt();
+                    tempMin = parsed.clamp(0, 300);
                   });
                 },
               ),
-              const SizedBox(height: 8),
-              const Text('Maximum delay:'),
-              Slider(
-                value: tempMax.toDouble(),
-                min: 0,
-                max: 300,
-                divisions: 300,
-                label: '${tempMax}s',
+              const SizedBox(height: 12),
+              TextField(
+                controller: maxController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Maximum delay (seconds)',
+                  border: OutlineInputBorder(),
+                  suffixText: 's',
+                ),
                 onChanged: (value) {
+                  final parsed = int.tryParse(value) ?? 0;
                   setDialogState(() {
-                    tempMax = value.toInt();
+                    tempMax = parsed.clamp(0, 300);
                   });
                 },
               ),
@@ -526,12 +589,153 @@ class SettingsScreen extends ConsumerWidget {
     }
   }
 
-  void _showGeminiApiKeyDialog(BuildContext context, WidgetRef ref, String currentKey) {
+  Widget _buildGeminiKeysSection(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final keys = settings.geminiApiKeys;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          title: const Text('Gemini API Keys'),
+          subtitle: Text(
+            keys.isEmpty
+                ? 'No keys set (get free key at aistudio.google.com)'
+                : '${keys.length} key${keys.length == 1 ? '' : 's'} configured',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _showGeminiKeysDialog(context, ref, settings),
+        ),
+        if (keys.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: keys.map((key) {
+                final display = key.length > 12 ? '${key.substring(0, 8)}...${key.substring(key.length - 4)}' : key;
+                return Chip(
+                  label: Text(display, style: const TextStyle(fontSize: 12)),
+                  deleteIcon: const Icon(Icons.close, size: 16),
+                  onDeleted: () {
+                    ref.read(appSettingsProvider.notifier).removeGeminiApiKey(key);
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  void _showGeminiKeysDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final keys = List<String>.from(settings.geminiApiKeys);
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Gemini API Keys'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (keys.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Add multiple keys to increase your rate limit.\nEach key gives 15 requests/min free.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                  ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: keys.length,
+                    itemBuilder: (context, index) {
+                      final key = keys[index];
+                      final display = key.length > 20
+                          ? '${key.substring(0, 12)}...${key.substring(key.length - 6)}'
+                          : key;
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.key, size: 20),
+                        title: Text(display, style: const TextStyle(fontSize: 13)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          onPressed: () {
+                            keys.removeAt(index);
+                            setDialogState(() {});
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Divider(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                          hintText: 'AIza...',
+                          labelText: 'New API Key',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: Colors.green),
+                      onPressed: () {
+                        final key = controller.text.trim();
+                        if (key.isNotEmpty && !keys.contains(key)) {
+                          keys.add(key);
+                          controller.clear();
+                          setDialogState(() {});
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Get free keys'),
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Go to https://aistudio.google.com/apikey')),
+                );
+              },
+            ),
+            TextButton(
+              onPressed: () {
+                ref.read(appSettingsProvider.notifier).updateGeminiApiKeys(keys);
+                Navigator.pop(context);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCerebrasApiKeyDialog(BuildContext context, WidgetRef ref, String currentKey) {
     final controller = TextEditingController(text: currentKey);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Gemini API Key'),
+        title: const Text('Cerebras API Key'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -539,7 +743,7 @@ class SettingsScreen extends ConsumerWidget {
             TextField(
               controller: controller,
               decoration: const InputDecoration(
-                hintText: 'AIza...',
+                hintText: 'csk-...',
                 labelText: 'API Key',
               ),
               obscureText: true,
@@ -547,11 +751,10 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 12),
             TextButton.icon(
               icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('Get free key at aistudio.google.com'),
+              label: const Text('Get free key at cloud.cerebras.ai'),
               onPressed: () {
-                // URL is shown, user can open manually
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Go to https://aistudio.google.com/apikey to create a free key')),
+                  const SnackBar(content: Text('Go to https://cloud.cerebras.ai to create a free key')),
                 );
               },
             ),
@@ -572,13 +775,13 @@ class SettingsScreen extends ConsumerWidget {
                 return;
               }
               Navigator.pop(context);
-              await _testGeminiApiKey(context, key);
+              await _testCerebrasApiKey(context, key);
             },
             child: const Text('Test'),
           ),
           TextButton(
             onPressed: () {
-              ref.read(appSettingsProvider.notifier).updateGeminiApiKey(controller.text.trim());
+              ref.read(appSettingsProvider.notifier).updateCerebrasApiKey(controller.text.trim());
               Navigator.pop(context);
             },
             child: const Text('Save'),
@@ -588,7 +791,7 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _testGeminiApiKey(BuildContext context, String apiKey) async {
+  Future<void> _testCerebrasApiKey(BuildContext context, String apiKey) async {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -598,21 +801,16 @@ class SettingsScreen extends ConsumerWidget {
     try {
       final client = HttpClient();
       final request = await client.postUrl(
-        Uri.parse('https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key=$apiKey'),
+        Uri.parse('https://api.cerebras.ai/v1/chat/completions'),
       );
+      request.headers.set('Authorization', 'Bearer $apiKey');
       request.headers.set('Content-Type', 'application/json');
       request.write(jsonEncode({
-        'contents': [
-          {
-            'parts': [
-              {'text': 'Say "API test successful" in exactly 3 words.'}
-            ]
-          }
+        'model': 'gpt-oss-120b',
+        'messages': [
+          {'role': 'user', 'content': 'Say "API test successful" in exactly 3 words.'}
         ],
-        'generationConfig': {
-          'maxOutputTokens': 20,
-          'temperature': 0.7,
-        },
+        'max_tokens': 20,
       }));
 
       final response = await request.close();
@@ -623,7 +821,7 @@ class SettingsScreen extends ConsumerWidget {
 
       if (response.statusCode == 200) {
         final json = jsonDecode(body);
-        final reply = json['candidates'][0]['content']['parts'][0]['text'].trim();
+        final reply = json['choices'][0]['message']['content'].trim();
         if (context.mounted) {
           showDialog(
             context: context,
@@ -667,7 +865,7 @@ class SettingsScreen extends ConsumerWidget {
           builder: (_) => AlertDialog(
             icon: const Icon(Icons.error, color: Colors.red, size: 48),
             title: const Text('Connection Failed'),
-            content: Text('Could not reach Gemini API:\n$e'),
+            content: Text('Could not reach Cerebras API:\n$e'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
@@ -707,182 +905,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LocalModelSection extends ConsumerStatefulWidget {
-  final AppSettings settings;
-  final WidgetRef ref;
-
-  const _LocalModelSection({
-    required this.settings,
-    required this.ref,
-  });
-
-  @override
-  ConsumerState<_LocalModelSection> createState() => _LocalModelSectionState();
-}
-
-class _LocalModelSectionState extends ConsumerState<_LocalModelSection> {
-  double _downloadProgress = 0;
-  bool _isDownloading = false;
-  String? _downloadedModelPath;
-  final _hfTokenController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _hfTokenController.text = widget.settings.hfToken;
-    _checkDownloadedModel();
-  }
-
-  @override
-  void dispose() {
-    _hfTokenController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _checkDownloadedModel() async {
-    final path = await ModelDownloadService.getLatestModelPath();
-    if (!mounted) return;
-    setState(() {
-      _downloadedModelPath = path;
-    });
-    // Auto-fix settings if model file exists but path not saved
-    if (path != null && widget.settings.localModelPath != path) {
-      widget.ref.read(appSettingsProvider.notifier).updateLocalModelPath(path);
-      widget.ref.read(appSettingsProvider.notifier).setLocalModelDownloaded(true);
-    }
-  }
-
-  Future<void> _startDownload() async {
-    final modelKey = await _showModelPicker();
-    if (modelKey == null || !mounted) return;
-
-    setState(() {
-      _isDownloading = true;
-      _downloadProgress = 0;
-    });
-
-    String? downloadError;
-    final path = await ModelDownloadService.downloadModel(
-      modelKey,
-      hfToken: widget.settings.hfToken.isNotEmpty ? widget.settings.hfToken : null,
-      onProgress: (progress) {
-        if (mounted) {
-          setState(() {
-            _downloadProgress = progress;
-          });
-        }
-      },
-      onComplete: (error) {
-        downloadError = error;
-      },
-    );
-
-    if (!mounted) return;
-
-    if (downloadError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Download failed: $downloadError')),
-      );
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 0;
-      });
-    } else {
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 1.0;
-      });
-      _checkDownloadedModel();
-      widget.ref.read(appSettingsProvider.notifier).updateLocalModelPath(path ?? '');
-      widget.ref.read(appSettingsProvider.notifier).setLocalModelDownloaded(path != null);
-    }
-  }
-
-  Future<String?> _showModelPicker() {
-    final models = ModelDownloadService.availableModels;
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Choose Model'),
-        children: models.entries.map((e) {
-          return SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, e.key),
-            child: ListTile(
-              title: Text(e.key),
-              subtitle: Text('${e.value['size']} — ${e.value['description']}'),
-              contentPadding: EdgeInsets.zero,
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Hugging Face token (optional, for download)
-        TextField(
-          decoration: const InputDecoration(
-            labelText: 'Hugging Face Token (optional)',
-            hintText: 'hf_...',
-            helperText: 'Some models require auth to download',
-            helperMaxLines: 2,
-          ),
-          obscureText: true,
-          controller: _hfTokenController,
-          onChanged: (v) {
-            widget.ref.read(appSettingsProvider.notifier).updateHfToken(v);
-          },
-        ),
-        const SizedBox(height: 8),
-        if (_isDownloading) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LinearProgressIndicator(value: _downloadProgress),
-                const SizedBox(height: 4),
-                Text(
-                  'Downloading model... ${(_downloadProgress * 100).toStringAsFixed(0)}%',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ],
-        if (_downloadedModelPath != null && !_isDownloading)
-          ListTile(
-            leading: const Icon(Icons.check_circle, color: Colors.green),
-            title: const Text('Model Downloaded'),
-            subtitle: Text(_downloadedModelPath!.split('\\').last.split('/').last),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline, color: Colors.red),
-              onPressed: () async {
-                await ModelDownloadService.deleteModel(_downloadedModelPath!);
-                setState(() => _downloadedModelPath = null);
-                widget.ref.read(appSettingsProvider.notifier).updateLocalModelPath('');
-              },
-            ),
-          )
-        else if (!_isDownloading)
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('Download Local Model'),
-              subtitle: const Text('~250-700 MB, downloaded once'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _startDownload,
-            ),
-          ),
-      ],
     );
   }
 }

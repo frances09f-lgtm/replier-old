@@ -11,7 +11,6 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
-import java.io.File
 
 /**
  * Notification listener that auto-replies entirely on the native side.
@@ -45,17 +44,20 @@ class AppNotificationListenerService : NotificationListenerService() {
     )
 
     private lateinit var ruleEngine: RuleEngine
+    private lateinit var messageBatcher: MessageBatcher
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         ruleEngine = RuleEngine(applicationContext)
+        messageBatcher = MessageBatcher(mainHandler)
         Log.d(TAG, "AppNotificationListenerService created")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        messageBatcher.cancelAll()
         instance = null
         Log.d(TAG, "AppNotificationListenerService destroyed")
     }
@@ -100,6 +102,12 @@ class AppNotificationListenerService : NotificationListenerService() {
             return
         }
 
+        // Schedule window check
+        if (!ruleEngine.isWithinScheduleWindow()) {
+            Log.d(TAG, "Skipping: outside schedule window")
+            return
+        }
+
         // Per-app toggle
         if (!ruleEngine.isAppEnabled(packageName)) {
             Log.d(TAG, "Skipping: $packageName is disabled in settings")
@@ -119,133 +127,32 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
 
         // Rule matching
-        val rule = ruleEngine.findMatchingRule(message)
+        val rule = ruleEngine.findMatchingRule(message, sender = title)
 
         if (rule == null) {
-            // AI fallback if enabled
+            // AI fallback if enabled — buffer messages and batch replies
             if (ruleEngine.isAiReplyEnabled()) {
+                // Skip notification artifacts (typing indicators, "X new messages", etc.)
+                if (isNotificationArtifact(message)) {
+                    Log.d(TAG, "Skipping notification artifact: '${message.take(50)}'")
+                    return
+                }
                 val modelType = ruleEngine.getAiModelType()
-                Log.d(TAG, "No rule matched. Trying AI fallback (model: $modelType)...")
+                val normalizedName = normalizeSenderName(title, packageName)
+                // Batch window: wait 5s for more messages before firing
+                val batchWindowMs = 5000L
+                Log.d(TAG, "No rule matched. Buffering for AI batch reply (model: $modelType, batchWindow: ${batchWindowMs}ms)...")
 
-                when (modelType) {
-                    "local" -> {
-                        val localPath = ruleEngine.getLocalModelPath()
-                        if (localPath.isNotEmpty() && File(localPath).exists()) {
-                            val localService = LocalAiService.getInstance()
-                            // Always force-reload model to ensure clean state
-                            // nativeLoadModel handles unloading previous model internally
-                            localService.forceReload(localPath) { success, error ->
-                                if (!success) {
-                                    Log.e(TAG, "Failed to load local model: $error")
-                                    return@forceReload
-                                }
-                                generateLocalReply(localService, sbn.key, title, message, ruleEngine)
-                            }
-                        } else {
-                            Log.e(TAG, "Local model not found at: $localPath")
-                        }
-                    }
-                    "gemini" -> {
-                        val apiKey = ruleEngine.getGeminiApiKey()
-                        if (apiKey.isNotEmpty()) {
-                            val geminiModel = ruleEngine.getGeminiModel()
-                            val geminiService = GeminiAiService()
-                            geminiService.getAiReply(
-                                apiKey = apiKey,
-                                model = geminiModel,
-                                senderName = title,
-                                incomingMessage = message,
-                                systemPrompt = ruleEngine.getAiSystemPrompt()
-                            ) { aiReply, usage ->
-                                if (usage != null) {
-                                    ruleEngine.saveAiUsage(usage.tokensUsed, usage.tokensRemaining, usage.tokensLimit, usage.resetInSeconds, usage.error)
-                                    val usageData = org.json.JSONObject().apply {
-                                        put("tokensUsed", usage.tokensUsed)
-                                        put("tokensRemaining", usage.tokensRemaining)
-                                        put("tokensLimit", usage.tokensLimit)
-                                        put("resetInSeconds", usage.resetInSeconds)
-                                        put("error", usage.error ?: "")
-                                    }
-                                    mainHandler.post {
-                                        methodChannel?.invokeMethod("onAiUsageUpdate", usageData.toString())
-                                    }
-                                }
-
-                                if (aiReply != null && aiReply.isNotBlank()) {
-                                    val delayMs = ruleEngine.getReplyDelayMs()
-                                    notifyReplyScheduled(title, aiReply, delayMs)
-                                    mainHandler.postDelayed({
-                                        sendReply(sbn.key, title, aiReply)
-                                    }, delayMs)
-                                } else {
-                                    // Fallback to Groq if Gemini fails or returns empty
-                                    Log.d(TAG, "Gemini AI returned empty, falling back to Groq")
-                                    val groqKey = ruleEngine.getGroqApiKey()
-                                    if (groqKey.isNotEmpty()) {
-                                        val groqService = GroqAiService()
-                                        groqService.getAiReply(
-                                            apiKey = groqKey,
-                                            senderName = title,
-                                            incomingMessage = message,
-                                            systemPrompt = ruleEngine.getAiSystemPrompt()
-                                        ) { groqReply, groqUsage ->
-                                            if (groqUsage != null) {
-                                                ruleEngine.saveAiUsage(groqUsage.tokensUsed, groqUsage.tokensRemaining, groqUsage.tokensLimit, groqUsage.resetInSeconds, groqUsage.error)
-                                            }
-                                            if (groqReply != null && groqReply.isNotBlank()) {
-                                                val delayMs = ruleEngine.getReplyDelayMs()
-                                                notifyReplyScheduled(title, groqReply, delayMs)
-                                                mainHandler.postDelayed({
-                                                    sendReply(sbn.key, title, groqReply)
-                                                }, delayMs)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            Log.d(TAG, "Gemini API key not set")
-                        }
-                    }
-                    else -> {
-                        // Default: Groq API
-                        val apiKey = ruleEngine.getGroqApiKey()
-                        if (apiKey.isNotEmpty()) {
-                            val groqService = GroqAiService()
-                            groqService.getAiReply(
-                                apiKey = apiKey,
-                                senderName = title,
-                                incomingMessage = message,
-                                systemPrompt = ruleEngine.getAiSystemPrompt()
-                            ) { aiReply, usage ->
-                                if (usage != null) {
-                                    ruleEngine.saveAiUsage(usage.tokensUsed, usage.tokensRemaining, usage.tokensLimit, usage.resetInSeconds, usage.error)
-                                    val usageData = org.json.JSONObject().apply {
-                                        put("tokensUsed", usage.tokensUsed)
-                                        put("tokensRemaining", usage.tokensRemaining)
-                                        put("tokensLimit", usage.tokensLimit)
-                                        put("resetInSeconds", usage.resetInSeconds)
-                                        put("error", usage.error ?: "")
-                                    }
-                                    mainHandler.post {
-                                        methodChannel?.invokeMethod("onAiUsageUpdate", usageData.toString())
-                                    }
-                                }
-
-                                if (aiReply != null && aiReply.isNotBlank()) {
-                                    val delayMs = ruleEngine.getReplyDelayMs()
-                                    notifyReplyScheduled(title, aiReply, delayMs)
-                                    mainHandler.postDelayed({
-                                        sendReply(sbn.key, title, aiReply)
-                                    }, delayMs)
-                                } else {
-                                    Log.d(TAG, "AI returned empty reply")
-                                }
-                            }
-                        } else {
-                            Log.d(TAG, "Groq API key not set")
-                        }
-                    }
+                messageBatcher.addMessage(
+                    sender = normalizedName,
+                    message = message,
+                    notificationKey = sbn.key,
+                    packageName = packageName,
+                    isGroupChat = isGroupChat,
+                    delayMs = batchWindowMs
+                ) { batch ->
+                    Log.d(TAG, "Batch ready for ${batch.sender}: ${batch.messages.size} messages")
+                    sendBatchedAiReply(batch, modelType)
                 }
             } else {
                 Log.d(TAG, "No matching rule for message: '${message.take(50)}'")
@@ -292,11 +199,21 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    fun sendReply(key: String, sender: String, replyText: String) {
+    fun sendReply(key: String, sender: String, replyText: String, isAiReply: Boolean = false, aiModelType: String = "") {
         try {
-            val sbn = activeNotifications?.find { it.key == key }
+            var sbn = activeNotifications?.find { it.key == key }
+
+            // If the original notification is gone or has no reply action, find one that does
+            if (sbn != null && !hasReplyAction(sbn) && isAiReply) {
+                Log.d(TAG, "Notification $key has no reply action, searching for one with reply action...")
+                sbn = findNotificationWithReplyAction(sender)
+            } else if (sbn == null && isAiReply) {
+                Log.d(TAG, "Notification not found for key: $key, searching by sender...")
+                sbn = findNotificationWithReplyAction(sender)
+            }
+
             if (sbn == null) {
-                Log.e(TAG, "Notification not found for key: $key")
+                Log.e(TAG, "No active notification found for key: $key, sender: $sender")
                 mainHandler.post {
                     methodChannel?.invokeMethod("onReplyFailed", "Notification not found")
                 }
@@ -308,8 +225,11 @@ class AppNotificationListenerService : NotificationListenerService() {
             val originalMessage = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
 
             val actions = sbn.notification.actions
+            Log.d(TAG, "Notification ${sbn.key} has ${actions?.size ?: 0} actions")
             if (!actions.isNullOrEmpty()) {
-                for (action in actions) {
+                for ((i, action) in actions.withIndex()) {
+                    val hasRemote = !action.remoteInputs.isNullOrEmpty()
+                    Log.d(TAG, "  Action[$i]: '${action.title}', hasRemoteInput=$hasRemote")
                     if (!action.remoteInputs.isNullOrEmpty()) {
                         val remoteInput = action.remoteInputs[0]
                         val replyIntent = Intent()
@@ -331,6 +251,8 @@ class AppNotificationListenerService : NotificationListenerService() {
                                     put("key", key)
                                     put("appName", appName)
                                     put("originalMessage", originalMessage)
+                                    put("isAiReply", isAiReply)
+                                    put("aiModelType", aiModelType)
                                 }
                                 methodChannel?.invokeMethod("onReplySuccess", replyData.toString())
                             }
@@ -355,60 +277,185 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
     }
 
+    /**
+     * Send a batched AI reply: collect all buffered messages from the batcher callback,
+     * call the appropriate AI service with all messages, then send a single reply.
+     */
+    private fun sendBatchedAiReply(batch: MessageBatcher.BatchReadyCallback, modelType: String) {
+        val sender = batch.sender
+        val messages = batch.messages.map { it.message }
+        val rawHistory = ConversationHistory.getHistory(sender)
+        val systemPrompt = ruleEngine.getAiSystemPrompt()
+
+        // Build a clean transcript: filter artifacts, dedup, merge, cap tokens
+        val history = ConversationTranscriptBuilder.build(
+            history = rawHistory,
+            batchMessages = emptyList(), // batch messages are passed separately to the AI service
+            senderName = sender
+        )
+
+        Log.d(TAG, "sendBatchedAiReply: sender=$sender, ${messages.size} messages, history=${history.size} entries, model=$modelType")
+
+        val onBatchResult: (String?, Int, Int, Int, Int, String?) -> Unit = { aiReply, tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error ->
+            if (tokensUsed > 0) {
+                ruleEngine.saveAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
+                notifyAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
+            }
+
+            if (aiReply != null && aiReply.isNotBlank()) {
+                for (msg in messages) {
+                    ConversationHistory.addMessage(sender, "user", msg)
+                }
+                ConversationHistory.addMessage(sender, "assistant", aiReply)
+
+                // Apply the user's configured reply delay on top of the batch window
+                val delayMs = ruleEngine.getReplyDelayMs()
+                notifyReplyScheduled(sender, aiReply, delayMs)
+                mainHandler.postDelayed({
+                    sendReply(batch.latestNotificationKey, sender, aiReply, isAiReply = true, aiModelType = modelType)
+                }, delayMs)
+            } else {
+                Log.w(TAG, "Batched AI returned empty reply for sender=$sender")
+            }
+        }
+
+        when (modelType) {
+            "cerebras" -> {
+                val apiKey = ruleEngine.getCerebrasApiKey()
+                if (apiKey.isNotEmpty()) {
+                    CerebrasAiService().getAiReplyBatch(
+                        apiKey = apiKey,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = systemPrompt,
+                        conversationHistory = history
+                    ) { aiReply, usage ->
+                        onBatchResult(
+                            aiReply,
+                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                        )
+                    }
+                } else {
+                    Log.d(TAG, "Cerebras API key not set, falling back to Groq")
+                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult)
+                }
+            }
+            "gemini" -> {
+                val apiKeys = ruleEngine.getGeminiApiKeys()
+                if (apiKeys.isNotEmpty()) {
+                    GeminiAiService().getAiReplyBatch(
+                        apiKeys = apiKeys,
+                        model = "gemini-2.5-flash",
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = systemPrompt,
+                        conversationHistory = history
+                    ) { aiReply, usage ->
+                        onBatchResult(
+                            aiReply,
+                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                        )
+                    }
+                } else {
+                    Log.d(TAG, "Gemini API key not set, falling back to Groq")
+                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult)
+                }
+            }
+            else -> {
+                fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult)
+            }
+        }
+    }
+
+    private fun fallBackToGroq(
+        sender: String,
+        messages: List<String>,
+        history: List<ConversationHistory.ChatMessage>,
+        systemPrompt: String,
+        notificationKey: String,
+        modelType: String,
+        onBatchResult: (String?, Int, Int, Int, Int, String?) -> Unit
+    ) {
+        val groqKey = ruleEngine.getGroqApiKey()
+        if (groqKey.isNotEmpty()) {
+            GroqAiService().getAiReplyBatch(
+                apiKey = groqKey,
+                senderName = sender,
+                incomingMessages = messages,
+                systemPrompt = systemPrompt,
+                conversationHistory = history
+            ) { aiReply, usage ->
+                onBatchResult(
+                    aiReply,
+                    usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                    usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                )
+            }
+        } else {
+            Log.d(TAG, "Groq API key not set, cannot send batched reply")
+        }
+    }
+
+    private fun notifyAiUsage(tokensUsed: Int, tokensRemaining: Int, tokensLimit: Int, resetInSeconds: Int, error: String?) {
+        val usageData = org.json.JSONObject().apply {
+            put("tokensUsed", tokensUsed)
+            put("tokensRemaining", tokensRemaining)
+            put("tokensLimit", tokensLimit)
+            put("resetInSeconds", resetInSeconds)
+            put("error", error ?: "")
+        }
+        mainHandler.post {
+            methodChannel?.invokeMethod("onAiUsageUpdate", usageData.toString())
+        }
+    }
+
     private fun getAppName(packageName: String) = when (packageName) {
         "com.whatsapp" -> "WhatsApp"
         "com.instagram.android" -> "Instagram"
         else -> packageName
     }
 
+    private fun hasReplyAction(sbn: StatusBarNotification): Boolean {
+        val actions = sbn.notification?.actions ?: return false
+        return actions.any { it.remoteInputs?.isNotEmpty() == true }
+    }
+
+    /**
+     * Find any active notification from the same sender that has a direct reply action.
+     * Returns null if none found.
+     */
+    private fun findNotificationWithReplyAction(sender: String): StatusBarNotification? {
+        return activeNotifications?.filter {
+            it.packageName in supportedPackages &&
+            it.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.contains(sender, ignoreCase = true) == true &&
+            hasReplyAction(it)
+        }?.lastOrNull()
+    }
+
     private fun isGroupChat(notification: Notification) =
         notification.extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
 
-    private fun generateLocalReply(
-        localService: LocalAiService,
-        key: String,
-        sender: String,
-        message: String,
-        engine: RuleEngine
-    ) {
-        localService.generateReply(
-            systemPrompt = engine.getAiSystemPrompt(),
-            senderName = sender,
-            incomingMessage = message,
-            maxTokens = 32,
-            temperature = 0.7f
-        ) { result ->
-            if (result.reply != null && result.reply.isNotBlank()) {
-                val delayMs = engine.getReplyDelayMs()
-                notifyReplyScheduled(sender, result.reply, delayMs)
-                mainHandler.postDelayed({
-                    sendReply(key, sender, result.reply)
-                }, delayMs)
-            } else {
-                Log.e(TAG, "Local AI returned error: ${result.error}")
-                val apiKey = engine.getGroqApiKey()
-                if (apiKey.isNotEmpty()) {
-                    Log.d(TAG, "Falling back to Groq API")
-                    val groqService = GroqAiService()
-                    groqService.getAiReply(
-                        apiKey = apiKey,
-                        senderName = sender,
-                        incomingMessage = message,
-                        systemPrompt = engine.getAiSystemPrompt()
-                    ) { aiReply, usage ->
-                        if (usage != null) {
-                            engine.saveAiUsage(usage.tokensUsed, usage.tokensRemaining, usage.tokensLimit, usage.resetInSeconds, usage.error)
-                        }
-                        if (aiReply != null && aiReply.isNotBlank()) {
-                            val delayMs = engine.getReplyDelayMs()
-                            notifyReplyScheduled(sender, aiReply, delayMs)
-                            mainHandler.postDelayed({
-                                sendReply(key, sender, aiReply)
-                            }, delayMs)
-                        }
-                    }
-                }
+    /**
+     * Normalize sender name for consistent batching.
+     * WhatsApp sometimes prefixes titles with "WhatsApp: " — strip it so
+     * "WhatsApp: Rahul" and "Rahul" are treated as the same sender.
+     */
+    private fun normalizeSenderName(title: String, packageName: String): String {
+        return when (packageName) {
+            "com.whatsapp" -> {
+                title.removePrefix("WhatsApp: ").trim()
             }
+            else -> title.trim()
         }
+    }
+
+    /**
+     * Quick check for obvious notification artifacts before they enter the batcher.
+     * More thorough filtering is done by [ConversationTranscriptBuilder] at transcript-build time.
+     */
+    private fun isNotificationArtifact(message: String): Boolean {
+        return ConversationTranscriptBuilder.isArtifact(message)
     }
 }

@@ -30,19 +30,77 @@ class GeminiAiService {
         .build()
 
     fun getAiReply(
-        apiKey: String,
+        apiKeys: List<String>,
         model: String,
         senderName: String,
         incomingMessage: String,
         systemPrompt: String,
+        conversationHistory: List<ConversationHistory.ChatMessage> = emptyList(),
         callback: (String?, AiUsage?) -> Unit
     ) {
+        getAiReplyBatch(apiKeys, model, senderName, listOf(incomingMessage), systemPrompt, conversationHistory, callback)
+    }
+
+    /**
+     * Batch version: accepts multiple messages from the same sender and combines
+     * them into a single user prompt so the AI can reply to all at once.
+     */
+    fun getAiReplyBatch(
+        apiKeys: List<String>,
+        model: String,
+        senderName: String,
+        incomingMessages: List<String>,
+        systemPrompt: String,
+        conversationHistory: List<ConversationHistory.ChatMessage> = emptyList(),
+        callback: (String?, AiUsage?) -> Unit
+    ) {
+        if (apiKeys.isEmpty()) {
+            callback(null, null)
+            return
+        }
+        tryKeys(apiKeys, 0, model, senderName, incomingMessages, systemPrompt, conversationHistory, callback)
+    }
+
+    private fun tryKeys(
+        keys: List<String>,
+        index: Int,
+        model: String,
+        senderName: String,
+        incomingMessages: List<String>,
+        systemPrompt: String,
+        conversationHistory: List<ConversationHistory.ChatMessage>,
+        callback: (String?, AiUsage?) -> Unit
+    ) {
+        if (index >= keys.size) {
+            callback(null, null)
+            return
+        }
+        val apiKey = keys[index]
+        Log.d(TAG, "Trying key ${index + 1}/${keys.size} (${apiKey.take(8)}...)")
+
+        val combinedMessage = if (incomingMessages.size == 1) {
+            "Message from $senderName: ${incomingMessages[0]}"
+        } else {
+            val conversation = incomingMessages.joinToString("\n") { msg -> msg }
+            "Messages from $senderName (read them as one conversation and reply accordingly):\n$conversation"
+        }
+
         val contentsArray = JSONArray().apply {
+            for (msg in conversationHistory) {
+                put(JSONObject().apply {
+                    put("role", if (msg.role == "user") "user" else "model")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("text", if (msg.role == "user") "Message from $senderName: ${msg.content}" else msg.content)
+                        })
+                    })
+                })
+            }
             put(JSONObject().apply {
                 put("role", "user")
                 put("parts", JSONArray().apply {
                     put(JSONObject().apply {
-                        put("text", "Message from $senderName: $incomingMessage")
+                        put("text", combinedMessage)
                     })
                 })
             })
@@ -65,7 +123,7 @@ class GeminiAiService {
             })
         }
 
-        val url = "https://generativelanguage.googleapis.com/v1/models/$model:generateContent?key=$apiKey"
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
 
         val request = Request.Builder()
             .url(url)
@@ -76,14 +134,26 @@ class GeminiAiService {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e(TAG, "Gemini API call failed", e)
-                callback(null, null)
+                tryKeys(keys, index + 1, model, senderName, incomingMessages, systemPrompt, conversationHistory, callback)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 response.use {
+                    if (response.code == 429) {
+                        Log.d(TAG, "Key ${index + 1} rate limited, trying next key")
+                        tryKeys(keys, index + 1, model, senderName, incomingMessages, systemPrompt, conversationHistory, callback)
+                        return
+                    }
+
                     if (!response.isSuccessful) {
                         val errorBody = response.body?.string() ?: ""
-                        Log.e(TAG, "Gemini API error: ${response.code}")
+                        Log.e(TAG, "Gemini API error: ${response.code} on key ${index + 1}")
+                        // Skip invalid keys and try next
+                        if (response.code == 400 || response.code == 401 || response.code == 403) {
+                            Log.d(TAG, "Key ${index + 1} invalid (${response.code}), trying next key")
+                            tryKeys(keys, index + 1, model, senderName, incomingMessages, systemPrompt, conversationHistory, callback)
+                            return
+                        }
                         val errorUsage = parseErrorBody(errorBody, response.code)
                         callback(null, errorUsage)
                         return
@@ -93,13 +163,13 @@ class GeminiAiService {
                         val responseBody = response.body?.string() ?: ""
                         val json = JSONObject(responseBody)
 
-                        // Parse usage metadata if present
                         val usage = if (json.has("usageMetadata")) {
                             val meta = json.getJSONObject("usageMetadata")
+                            val total = meta.optInt("totalTokenCount", 0)
                             AiUsage(
-                                tokensUsed = meta.optInt("totalTokenCount", 0),
-                                tokensRemaining = 0,
-                                tokensLimit = 0
+                                tokensUsed = meta.optInt("promptTokenCount", 0),
+                                tokensRemaining = total,
+                                tokensLimit = total
                             )
                         } else {
                             AiUsage()
@@ -109,7 +179,6 @@ class GeminiAiService {
                         if (candidates.length() > 0) {
                             val candidate = candidates.getJSONObject(0)
 
-                            // Check for blocked response
                             if (candidate.has("finishReason") &&
                                 candidate.getString("finishReason") == "SAFETY") {
                                 callback(null, usage.copy(error = "Response blocked by safety filters"))

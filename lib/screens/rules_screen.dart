@@ -149,9 +149,13 @@ class _RuleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final triggers = rule.effectiveTriggers;
     final replies = rule.effectiveReplies;
+    final senders = rule.senderNames;
     final triggerLabel =
         triggers.length == 1 ? triggers.first : triggers.join(' · ');
     final replyLabel = replies.length == 1 ? replies.first : replies.join(' · ');
+    final senderLabel = senders.length == 1
+        ? senders.first
+        : senders.take(2).join(', ') + (senders.length > 2 ? '...' : '');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -182,7 +186,7 @@ class _RuleCard extends StatelessWidget {
                   ),
                 ),
               ),
-            Text('→ $replyLabel'),
+            Text('\u2192 $replyLabel'),
             if (replies.length > 1)
               Padding(
                 padding: const EdgeInsets.only(top: 2),
@@ -194,9 +198,38 @@ class _RuleCard extends StatelessWidget {
                   ),
                 ),
               ),
+            if (senders.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    Icon(Icons.person, size: 12, color: Colors.grey[600]),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        senderLabel,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (senders.length > 1)
+                      Text(
+                        ' (${senders.length})',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
           ],
         ),
-        isThreeLine: triggers.length > 1 || replies.length > 1,
+        isThreeLine:
+            triggers.length > 1 || replies.length > 1 || senders.isNotEmpty,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

@@ -45,20 +45,34 @@ class Rule extends HiveObject {
   @HiveField(10)
   List<String> replies;
 
+  /// Specific sender names this rule applies to.
+  /// When empty, the rule matches messages from any sender.
+  /// When populated, the rule only fires for messages from these senders.
+  @HiveField(11)
+  List<String> senderNames;
+
+  /// Whether this rule is a default/built-in rule.
+  /// Default rules can be batch-removed by the user.
+  @HiveField(12)
+  bool isDefault;
+
   Rule({
     required this.id,
     required this.triggerText,
     required this.replyText,
-    this.exactMatch = false,
-    this.containsMatch = true,
+    this.exactMatch = true,
+    this.containsMatch = false,
     this.caseSensitive = false,
     this.isEnabled = true,
     required this.createdAt,
     required this.updatedAt,
     List<String>? triggerTexts,
     List<String>? replies,
+    List<String>? senderNames,
+    this.isDefault = false,
   })  : triggerTexts = triggerTexts ?? [],
-        replies = replies ?? [];
+        replies = replies ?? [],
+        senderNames = senderNames ?? [];
 
   /// All active trigger texts: uses [triggerTexts] when populated,
   /// otherwise falls back to the legacy [triggerText].
@@ -70,13 +84,37 @@ class Rule extends HiveObject {
   List<String> get effectiveReplies =>
       replies.isNotEmpty ? replies : [replyText];
 
-  /// Check if a message matches this rule
-  bool matches(String message) {
+  /// Normalize a message: trim, remove trailing punctuation, lowercase.
+  /// This ensures a single rule matches variations like "Kay challay?", "KAY CHALLAY!!", etc.
+  static String normalizeMessage(String text) {
+    var result = text.trim();
+    // Remove trailing punctuation: ? ! . , ; : ) ] }
+    result = result.replaceAll(RegExp(r'[?!,;:\)\]\}]+$'), '');
+    result = result.trim().toLowerCase();
+    return result;
+  }
+
+  /// Check if a message matches this rule, optionally filtering by sender.
+  /// If [senderNames] is non-empty, the sender must be in the list.
+  /// Messages are normalized (trimmed, punctuation stripped, lowered) before matching.
+  bool matches(String message, {String? sender}) {
     if (!isEnabled) return false;
-    final msg = caseSensitive ? message : message.toLowerCase();
+
+    // Sender filter: if senderNames is set, sender must be in the list
+    if (senderNames.isNotEmpty && sender != null) {
+      final matched = senderNames.any(
+        (name) => name.toLowerCase() == sender.toLowerCase(),
+      );
+      if (!matched) return false;
+    } else if (senderNames.isNotEmpty && sender == null) {
+      // senderNames is set but no sender info available — skip
+      return false;
+    }
+
+    final msg = caseSensitive ? message : normalizeMessage(message);
     return effectiveTriggers.any((t) {
-      final trigger = caseSensitive ? t : t.toLowerCase();
-      if (exactMatch) return msg.trim() == trigger.trim();
+      final trigger = caseSensitive ? t : normalizeMessage(t);
+      if (exactMatch) return msg == trigger;
       if (containsMatch) return msg.contains(trigger);
       return false;
     });
@@ -90,10 +128,12 @@ class Rule extends HiveObject {
       'triggerTexts': triggerTexts,
       'replyText': replyText,
       'replies': replies,
+      'senderNames': senderNames,
       'exactMatch': exactMatch,
       'containsMatch': containsMatch,
       'caseSensitive': caseSensitive,
       'isEnabled': isEnabled,
+      'isDefault': isDefault,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -109,15 +149,21 @@ class Rule extends HiveObject {
     final List<String> replyList = rawReplies is List
         ? rawReplies.map((e) => e.toString()).toList()
         : <String>[];
+    final rawSenders = json['senderNames'];
+    final List<String> senderList = rawSenders is List
+        ? rawSenders.map((e) => e.toString()).toList()
+        : <String>[];
     return Rule(
       id: json['id'],
       triggerText: json['triggerText'] ?? '',
       replyText: json['replyText'] ?? '',
       replies: replyList,
-      exactMatch: json['exactMatch'] ?? false,
-      containsMatch: json['containsMatch'] ?? true,
+      senderNames: senderList,
+      exactMatch: json['exactMatch'] ?? true,
+      containsMatch: json['containsMatch'] ?? false,
       caseSensitive: json['caseSensitive'] ?? false,
       isEnabled: json['isEnabled'] ?? true,
+      isDefault: json['isDefault'] ?? false,
       createdAt: DateTime.parse(json['createdAt']),
       updatedAt: DateTime.parse(json['updatedAt']),
       triggerTexts: triggers,
@@ -131,10 +177,12 @@ class Rule extends HiveObject {
     List<String>? triggerTexts,
     String? replyText,
     List<String>? replies,
+    List<String>? senderNames,
     bool? exactMatch,
     bool? containsMatch,
     bool? caseSensitive,
     bool? isEnabled,
+    bool? isDefault,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -144,10 +192,12 @@ class Rule extends HiveObject {
       triggerTexts: triggerTexts ?? List.from(this.triggerTexts),
       replyText: replyText ?? this.replyText,
       replies: replies ?? List.from(this.replies),
+      senderNames: senderNames ?? List.from(this.senderNames),
       exactMatch: exactMatch ?? this.exactMatch,
       containsMatch: containsMatch ?? this.containsMatch,
       caseSensitive: caseSensitive ?? this.caseSensitive,
       isEnabled: isEnabled ?? this.isEnabled,
+      isDefault: isDefault ?? this.isDefault,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

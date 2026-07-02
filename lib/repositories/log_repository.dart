@@ -99,6 +99,20 @@ class LogRepository {
     );
   }
 
+  /// Get replies count grouped by AI model (today only, resets at midnight)
+  Map<String, int> getAiReplyCounts() {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final logs = getAllLogs();
+    final counts = <String, int>{};
+    for (final log in logs) {
+      if (log.aiModel.isNotEmpty && log.dateTime.isAfter(todayStart.subtract(const Duration(seconds: 1)))) {
+        counts[log.aiModel] = (counts[log.aiModel] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
   /// Get last reply log
   ReplyLog? getLastReplyLog() {
     final logs = getAllLogs();

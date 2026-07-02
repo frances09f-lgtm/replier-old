@@ -36,16 +36,45 @@ class GroqAiService {
         senderName: String,
         incomingMessage: String,
         systemPrompt: String,
+        conversationHistory: List<ConversationHistory.ChatMessage> = emptyList(),
         callback: (String?, AiUsage?) -> Unit
     ) {
+        getAiReplyBatch(apiKey, senderName, listOf(incomingMessage), systemPrompt, conversationHistory, callback)
+    }
+
+    /**
+     * Batch version: accepts multiple messages from the same sender and combines
+     * them into a single user prompt so the AI can reply to all at once.
+     */
+    fun getAiReplyBatch(
+        apiKey: String,
+        senderName: String,
+        incomingMessages: List<String>,
+        systemPrompt: String,
+        conversationHistory: List<ConversationHistory.ChatMessage> = emptyList(),
+        callback: (String?, AiUsage?) -> Unit
+    ) {
+        val combinedMessage = if (incomingMessages.size == 1) {
+            "Message from $senderName: ${incomingMessages[0]}"
+        } else {
+            val conversation = incomingMessages.joinToString("\n") { msg -> msg }
+            "Messages from $senderName (read them as one conversation and reply accordingly):\n$conversation"
+        }
+
         val messagesArray = JSONArray().apply {
             put(JSONObject().apply {
                 put("role", "system")
                 put("content", systemPrompt)
             })
+            for (msg in conversationHistory) {
+                put(JSONObject().apply {
+                    put("role", msg.role)
+                    put("content", if (msg.role == "user") "Message from $senderName: ${msg.content}" else msg.content)
+                })
+            }
             put(JSONObject().apply {
                 put("role", "user")
-                put("content", "Message from $senderName: $incomingMessage")
+                put("content", combinedMessage)
             })
         }
 
@@ -84,15 +113,18 @@ class GroqAiService {
                     try {
                         val responseBody = response.body?.string() ?: ""
                         val json = JSONObject(responseBody)
+                        val bodyUsage = parseUsageBody(json)
+                        val finalUsage = if (usage.tokensLimit > 0) usage else bodyUsage
+
                         val choices = json.getJSONArray("choices")
                         if (choices.length() > 0) {
                             val content = choices.getJSONObject(0)
                                 .getJSONObject("message")
                                 .getString("content")
                                 .trim()
-                            callback(content, usage)
+                            callback(content, finalUsage)
                         } else {
-                            callback(null, usage)
+                            callback(null, finalUsage)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to parse Groq response", e)
@@ -103,10 +135,36 @@ class GroqAiService {
         })
     }
 
+    private fun parseUsageBody(json: JSONObject): AiUsage {
+        return try {
+            val usage = json.optJSONObject("usage")
+            if (usage != null) {
+                val promptTokens = usage.optInt("prompt_tokens", 0)
+                val completionTokens = usage.optInt("completion_tokens", 0)
+                val totalTokens = usage.optInt("total_tokens", promptTokens + completionTokens)
+                Log.d(TAG, "Usage from body: prompt=$promptTokens, completion=$completionTokens, total=$totalTokens")
+                AiUsage(
+                    tokensUsed = totalTokens,
+                    tokensRemaining = -1,
+                    tokensLimit = -1,
+                    resetInSeconds = 0
+                )
+            } else {
+                AiUsage()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse usage from body", e)
+            AiUsage()
+        }
+    }
+
     private fun parseUsageHeaders(response: Response): AiUsage {
-        val limit = response.header("x-ratelimit-limit-tokens")?.toIntOrNull() ?: 0
-        val remaining = response.header("x-ratelimit-remaining-tokens")?.toIntOrNull() ?: 0
-        val resetSeconds = response.header("x-ratelimit-reset-tokens")?.let { header ->
+        val limit = response.header("x-ratelimit-limit-tokens-minute")?.toIntOrNull()
+            ?: response.header("x-ratelimit-limit-tokens")?.toIntOrNull() ?: 0
+        val remaining = response.header("x-ratelimit-remaining-tokens-minute")?.toIntOrNull()
+            ?: response.header("x-ratelimit-remaining-tokens")?.toIntOrNull() ?: 0
+        val resetSeconds = (response.header("x-ratelimit-reset-tokens-minute")
+            ?: response.header("x-ratelimit-reset-tokens"))?.let { header ->
             val match = Regex("(\\d+)(?:\\.\\d+)?s?").find(header)
             match?.groupValues?.get(1)?.toIntOrNull() ?: 0
         } ?: 0

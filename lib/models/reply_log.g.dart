@@ -24,13 +24,14 @@ class ReplyLogAdapter extends TypeAdapter<ReplyLog> {
       appName: fields[4] as String,
       dateTime: fields[5] as DateTime,
       ruleId: fields[6] as String,
+      aiModel: fields[7] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, ReplyLog obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -44,7 +45,9 @@ class ReplyLogAdapter extends TypeAdapter<ReplyLog> {
       ..writeByte(5)
       ..write(obj.dateTime)
       ..writeByte(6)
-      ..write(obj.ruleId);
+      ..write(obj.ruleId)
+      ..writeByte(7)
+      ..write(obj.aiModel);
   }
 
   @override

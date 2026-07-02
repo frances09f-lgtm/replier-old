@@ -119,27 +119,6 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateLocalModelPath(String path) async {
-    await _repository.updateLocalModelPath(path);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> setLocalModelDownloaded(bool downloaded) async {
-    await _repository.setLocalModelDownloaded(downloaded);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> updateHfToken(String token) async {
-    await _repository.updateHfToken(token);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
   Future<void> updateGeminiApiKey(String apiKey) async {
     await _repository.updateGeminiApiKey(apiKey);
     final s = _repository.getSettings();
@@ -147,8 +126,29 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateGeminiModel(String model) async {
-    await _repository.updateGeminiModel(model);
+  Future<void> updateGeminiApiKeys(List<String> keys) async {
+    await _repository.updateGeminiApiKeys(keys);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> addGeminiApiKey(String apiKey) async {
+    await _repository.addGeminiApiKey(apiKey);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> removeGeminiApiKey(String apiKey) async {
+    await _repository.removeGeminiApiKey(apiKey);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateCerebrasApiKey(String apiKey) async {
+    await _repository.updateCerebrasApiKey(apiKey);
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);
@@ -156,6 +156,25 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
 
   Future<void> updateAiSystemPrompt(String prompt) async {
     await _repository.updateAiSystemPrompt(prompt);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateSchedule({
+    required bool enabled,
+    required int startHour,
+    required int startMinute,
+    required int endHour,
+    required int endMinute,
+  }) async {
+    await _repository.updateSchedule(
+      enabled: enabled,
+      startHour: startHour,
+      startMinute: startMinute,
+      endHour: endHour,
+      endMinute: endMinute,
+    );
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);

@@ -135,6 +135,7 @@ class AutoReplyService {
         appName: data['appName'] ?? '',
         ruleId: '',
       );
+      log.aiModel = data['aiModelType'] as String? ?? '';
       await _logRepository.addLog(log);
 
       if (_providerContainer != null) {

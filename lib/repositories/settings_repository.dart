@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:injectable/injectable.dart';
 import '../core/hive_config.dart';
 import '../core/constants.dart';
@@ -119,48 +120,57 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
-  /// Update AI model type (groq / local)
+  /// Update AI model type (groq / gemini / cerebras)
   Future<void> updateAiModelType(String modelType) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(aiModelType: modelType);
     await updateSettings(updatedSettings);
   }
 
-  /// Update local model path
-  Future<void> updateLocalModelPath(String path) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(
-      localModelPath: path,
-      localModelDownloaded: path.isNotEmpty,
-    );
-    await updateSettings(updatedSettings);
-  }
-
-  /// Mark local model as downloaded
-  Future<void> setLocalModelDownloaded(bool downloaded) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(localModelDownloaded: downloaded);
-    await updateSettings(updatedSettings);
-  }
-
-  /// Update Hugging Face token
-  Future<void> updateHfToken(String token) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(hfToken: token);
-    await updateSettings(updatedSettings);
-  }
-
-  /// Update Gemini API key
+  /// Update Gemini API key (single key, backward compat)
   Future<void> updateGeminiApiKey(String apiKey) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(geminiApiKey: apiKey);
     await updateSettings(updatedSettings);
   }
 
-  /// Update Gemini model
-  Future<void> updateGeminiModel(String model) async {
+  /// Replace all Gemini API keys
+  Future<void> updateGeminiApiKeys(List<String> keys) async {
     final settings = getSettings();
-    final updatedSettings = settings.copyWith(geminiModel: model);
+    final updatedSettings = settings.copyWith(
+      geminiApiKeysJson: jsonEncode(keys),
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Add a Gemini API key to the list
+  Future<void> addGeminiApiKey(String apiKey) async {
+    final settings = getSettings();
+    final keys = List<String>.from(settings.geminiApiKeys);
+    if (!keys.contains(apiKey)) {
+      keys.add(apiKey);
+      final updatedSettings = settings.copyWith(
+        geminiApiKeysJson: jsonEncode(keys),
+      );
+      await updateSettings(updatedSettings);
+    }
+  }
+
+  /// Remove a Gemini API key from the list
+  Future<void> removeGeminiApiKey(String apiKey) async {
+    final settings = getSettings();
+    final keys = List<String>.from(settings.geminiApiKeys);
+    keys.remove(apiKey);
+    final updatedSettings = settings.copyWith(
+      geminiApiKeysJson: jsonEncode(keys),
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Cerebras API key
+  Future<void> updateCerebrasApiKey(String apiKey) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(cerebrasApiKey: apiKey);
     await updateSettings(updatedSettings);
   }
 
@@ -168,6 +178,25 @@ class SettingsRepository {
   Future<void> updateAiSystemPrompt(String prompt) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(aiSystemPrompt: prompt);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update schedule settings
+  Future<void> updateSchedule({
+    required bool enabled,
+    required int startHour,
+    required int startMinute,
+    required int endHour,
+    required int endMinute,
+  }) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      scheduleEnabled: enabled,
+      scheduleStartHour: startHour,
+      scheduleStartMinute: startMinute,
+      scheduleEndHour: endHour,
+      scheduleEndMinute: endMinute,
+    );
     await updateSettings(updatedSettings);
   }
 

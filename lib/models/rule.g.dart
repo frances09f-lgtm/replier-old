@@ -28,13 +28,15 @@ class RuleAdapter extends TypeAdapter<Rule> {
       updatedAt: fields[8] as DateTime,
       triggerTexts: (fields[9] as List?)?.cast<String>(),
       replies: (fields[10] as List?)?.cast<String>(),
+      senderNames: (fields[11] as List?)?.cast<String>(),
+      isDefault: fields[12] as bool? ?? false,
     );
   }
 
   @override
   void write(BinaryWriter writer, Rule obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -56,7 +58,11 @@ class RuleAdapter extends TypeAdapter<Rule> {
       ..writeByte(9)
       ..write(obj.triggerTexts)
       ..writeByte(10)
-      ..write(obj.replies);
+      ..write(obj.replies)
+      ..writeByte(11)
+      ..write(obj.senderNames)
+      ..writeByte(12)
+      ..write(obj.isDefault);
   }
 
   @override

@@ -5,6 +5,7 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.Calendar
 import kotlin.random.Random
 
 /**
@@ -85,10 +86,12 @@ class RuleEngine(private val context: Context) {
         val triggerTexts: List<String>,   // multi-trigger support
         val replyText: String,
         val replies: List<String>,         // multi-reply support
+        val senderNames: List<String>,    // specific contacts (empty = all)
         val exactMatch: Boolean,
         val containsMatch: Boolean,
         val caseSensitive: Boolean,
         val isEnabled: Boolean,
+        val isDefault: Boolean = false,
     ) {
         /** All active trigger texts: uses triggerTexts when populated, else falls back to triggerText */
         val effectiveTriggers: List<String>
@@ -100,6 +103,14 @@ class RuleEngine(private val context: Context) {
 
         /** Return a random reply from the effective replies list */
         fun randomReply(): String = effectiveReplies.random()
+    }
+
+    /** Normalize a message: trim, remove trailing punctuation, lowercase. */
+    private fun normalizeMessage(text: String): String {
+        var result = text.trim()
+        // Remove trailing punctuation: ? ! . , ; : ) ] }
+        result = result.replace(Regex("[?!,;:\\)\\]\\}]+$"), "")
+        return result.trim().lowercase()
     }
 
     /** Load all enabled rules */
@@ -119,16 +130,22 @@ class RuleEngine(private val context: Context) {
                 val replyList = if (rawReplies != null) {
                     (0 until rawReplies.length()).map { i -> rawReplies.getString(i) }
                 } else emptyList()
+                val rawSenders = it.optJSONArray("senderNames")
+                val senderList = if (rawSenders != null) {
+                    (0 until rawSenders.length()).map { i -> rawSenders.getString(i) }
+                } else emptyList()
                 Rule(
                     id = it.optString("id", ""),
                     triggerText = it.optString("triggerText", ""),
                     triggerTexts = triggerList,
                     replyText = it.optString("replyText", ""),
                     replies = replyList,
+                    senderNames = senderList,
                     exactMatch = it.optBoolean("exactMatch", false),
                     containsMatch = it.optBoolean("containsMatch", true),
                     caseSensitive = it.optBoolean("caseSensitive", false),
                     isEnabled = it.optBoolean("isEnabled", true),
+                    isDefault = it.optBoolean("isDefault", false),
                 )
             }
         } catch (e: Exception) {
@@ -137,23 +154,30 @@ class RuleEngine(private val context: Context) {
         }
     }
 
-    /** Find the first matching rule for a given message */
-    fun findMatchingRule(message: String): Rule? {
+    /** Find the first matching rule for a given message and sender */
+    fun findMatchingRule(message: String, sender: String? = null): Rule? {
         val rules = getEnabledRules()
-        Log.d(TAG, "findMatchingRule: '${message.take(60)}' vs ${rules.size} rules")
-        val match = rules.firstOrNull { it.matches(message) }
+        Log.d(TAG, "findMatchingRule: '${message.take(60)}' from '$sender' vs ${rules.size} rules")
+        val match = rules.firstOrNull { it.matches(message, sender) }
         if (match != null) Log.d(TAG, "findMatchingRule: MATCHED '${match.triggerText}'")
         else Log.d(TAG, "findMatchingRule: no match")
         return match
     }
 
-    /** Check if a message matches a rule (any trigger matches) */
-    private fun Rule.matches(message: String): Boolean {
-        val msg = if (caseSensitive) message else message.lowercase()
+    /** Check if a message matches a rule (any trigger matches), optionally filtering by sender */
+    private fun Rule.matches(message: String, sender: String? = null): Boolean {
+        // Sender filter: if senderNames is set, sender must be in the list
+        if (senderNames.isNotEmpty()) {
+            if (sender == null) return false
+            val matched = senderNames.any { it.equals(sender, ignoreCase = true) }
+            if (!matched) return false
+        }
+
+        val msg = if (caseSensitive) message else normalizeMessage(message)
         return effectiveTriggers.any { t ->
-            val trigger = if (caseSensitive) t else t.lowercase()
+            val trigger = if (caseSensitive) t else normalizeMessage(t)
             when {
-                exactMatch    -> msg.trim() == trigger.trim()
+                exactMatch    -> msg == trigger
                 containsMatch -> msg.contains(trigger)
                 else          -> false
             }
@@ -239,6 +263,36 @@ class RuleEngine(private val context: Context) {
         return prefs.getBoolean(KEY_PREVENT_DUPLICATES, true)
     }
 
+    fun isWithinScheduleWindow(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                val obj = JSONObject(json)
+                val scheduleEnabled = obj.optBoolean("scheduleEnabled", false)
+                if (!scheduleEnabled) return true
+
+                val startHour = obj.optInt("scheduleStartHour", 8)
+                val startMinute = obj.optInt("scheduleStartMinute", 0)
+                val endHour = obj.optInt("scheduleEndHour", 22)
+                val endMinute = obj.optInt("scheduleEndMinute", 0)
+
+                val cal = Calendar.getInstance()
+                val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+                val startMinutes = startHour * 60 + startMinute
+                val endMinutes = endHour * 60 + endMinute
+
+                return if (startMinutes <= endMinutes) {
+                    // Same-day window (e.g., 8:00 - 22:00)
+                    currentMinutes in startMinutes..endMinutes
+                } else {
+                    // Overnight window (e.g., 22:00 - 6:00)
+                    currentMinutes >= startMinutes || currentMinutes <= endMinutes
+                }
+            }
+        } catch (_: Exception) {}
+        return true
+    }
+
     // ── AI Settings ───────────────────────────────────────────────────────
 
     fun isAiReplyEnabled(): Boolean {
@@ -273,28 +327,46 @@ class RuleEngine(private val context: Context) {
         return prefs.getString("gemini_api_key", "") ?: ""
     }
 
-    fun getGeminiModel(): String {
+    fun getGeminiApiKeys(): List<String> {
+        val keys = mutableListOf<String>()
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("geminiModel", "gemini-2.0-flash")
-        } catch (_: Exception) {}
-        return prefs.getString("gemini_model", "gemini-2.0-flash") ?: "gemini-2.0-flash"
+            if (json != "{}") {
+                val obj = JSONObject(json)
+                // Try the new list format first
+                val keysJson = obj.optString("geminiApiKeysJson", "[]")
+                Log.d(TAG, "getGeminiApiKeys: geminiApiKeysJson=$keysJson")
+                if (keysJson != "[]") {
+                    val arr = org.json.JSONArray(keysJson)
+                    for (i in 0 until arr.length()) {
+                        val k = arr.optString(i, "")
+                        if (k.isNotEmpty()) keys.add(k)
+                    }
+                }
+                // Fallback: single key field
+                if (keys.isEmpty()) {
+                    val single = obj.optString("geminiApiKey", "")
+                    if (single.isNotEmpty()) keys.add(single)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getGeminiApiKeys failed: $e")
+        }
+        // Fallback: SharedPreferences single key
+        if (keys.isEmpty()) {
+            val single = prefs.getString("gemini_api_key", "") ?: ""
+            if (single.isNotEmpty()) keys.add(single)
+        }
+        Log.d(TAG, "getGeminiApiKeys: found ${keys.size} keys")
+        return keys
     }
 
-    fun getLocalModelPath(): String {
+    fun getCerebrasApiKey(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("localModelPath", "")
+            if (json != "{}") return JSONObject(json).optString("cerebrasApiKey", "")
         } catch (_: Exception) {}
-        return prefs.getString("local_model_path", "") ?: ""
-    }
-
-    fun isLocalModelDownloaded(): Boolean {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optBoolean("localModelDownloaded", false)
-        } catch (_: Exception) {}
-        return prefs.getBoolean("local_model_downloaded", false)
+        return prefs.getString("cerebras_api_key", "") ?: ""
     }
 
     fun getAiSystemPrompt(): String {
@@ -392,11 +464,15 @@ class RuleEngine(private val context: Context) {
                 .putString("ai_model_type", obj.optString("aiModelType", "groq"))
                 .putString("groq_api_key", obj.optString("groqApiKey", ""))
                 .putString("gemini_api_key", obj.optString("geminiApiKey", ""))
-                .putString("gemini_model", obj.optString("geminiModel", "gemini-2.0-flash"))
-                .putString("local_model_path", obj.optString("localModelPath", ""))
-                .putBoolean("local_model_downloaded", obj.optBoolean("localModelDownloaded", false))
+                .putString("gemini_api_keys_json", obj.optString("geminiApiKeysJson", "[]"))
+                .putString("cerebras_api_key", obj.optString("cerebrasApiKey", ""))
                 .putString("ai_system_prompt", obj.optString("aiSystemPrompt",
                     "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational."))
+                .putBoolean("schedule_enabled", obj.optBoolean("scheduleEnabled", false))
+                .putInt("schedule_start_hour", obj.optInt("scheduleStartHour", 8))
+                .putInt("schedule_start_minute", obj.optInt("scheduleStartMinute", 0))
+                .putInt("schedule_end_hour", obj.optInt("scheduleEndHour", 22))
+                .putInt("schedule_end_minute", obj.optInt("scheduleEndMinute", 0))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

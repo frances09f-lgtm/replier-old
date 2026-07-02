@@ -62,7 +62,7 @@ class RuleRepository {
     }
   }
 
-  /// Search rules by trigger text
+  /// Search rules by trigger text, reply text, or sender name
   List<Rule> searchRules(String query) {
     final rules = getAllRules();
     if (query.isEmpty) return rules;
@@ -71,9 +71,27 @@ class RuleRepository {
     return rules.where((rule) {
       final matchesTriggers = rule.effectiveTriggers
           .any((t) => t.toLowerCase().contains(lowerQuery));
+      final matchesSenders = rule.senderNames
+          .any((s) => s.toLowerCase().contains(lowerQuery));
       return matchesTriggers ||
-          rule.replyText.toLowerCase().contains(lowerQuery);
+          rule.replyText.toLowerCase().contains(lowerQuery) ||
+          matchesSenders;
     }).toList();
+  }
+
+  /// Delete all default/built-in rules
+  Future<void> deleteDefaultRules() async {
+    final box = HiveConfig.getRulesBox();
+    final defaults = box.values.where((r) => r.isDefault).toList();
+    for (final rule in defaults) {
+      await box.delete(rule.id);
+    }
+  }
+
+  /// Check if default rules have been loaded already
+  bool hasDefaultRules() {
+    final box = HiveConfig.getRulesBox();
+    return box.values.any((r) => r.isDefault);
   }
 
   /// Find matching rule for a message
@@ -93,8 +111,9 @@ class RuleRepository {
     required String replyText,
     List<String>? triggerTexts,
     List<String>? replies,
-    bool exactMatch = false,
-    bool containsMatch = true,
+    List<String>? senderNames,
+    bool exactMatch = true,
+    bool containsMatch = false,
     bool caseSensitive = false,
     bool isEnabled = true,
   }) {
@@ -104,6 +123,7 @@ class RuleRepository {
       triggerTexts: triggerTexts ?? [],
       replyText: replyText,
       replies: replies ?? [],
+      senderNames: senderNames ?? [],
       exactMatch: exactMatch,
       containsMatch: containsMatch,
       caseSensitive: caseSensitive,
