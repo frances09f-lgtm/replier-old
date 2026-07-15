@@ -37,6 +37,20 @@ final totalRepliesProvider = Provider<int>((ref) {
   return repository.getTotalRepliesSent();
 });
 
+/// Provider for daily notifications received (reactive)
+final dailyNotificationsProvider = Provider<int>((ref) {
+  ref.watch(logsProvider);
+  final repository = ref.watch(statisticsRepositoryProvider);
+  return repository.getDailyNotificationsReceived();
+});
+
+/// Provider for daily replies sent (reactive)
+final dailyRepliesProvider = Provider<int>((ref) {
+  ref.watch(logsProvider);
+  final repository = ref.watch(statisticsRepositoryProvider);
+  return repository.getDailyRepliesSent();
+});
+
 /// Provider for last reply sent (reactive)
 final lastReplyProvider = Provider<DateTime?>((ref) {
   ref.watch(logsProvider);

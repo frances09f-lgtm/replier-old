@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 
 /// Service for handling native Android communication
@@ -72,6 +73,18 @@ class NotificationService {
     } catch (e) {
       return false;
     }
+  }
+
+  /// Check if POST_NOTIFICATIONS permission is granted (Android 13+)
+  Future<bool> isPostNotificationPermissionGranted() async {
+    final status = await Permission.notification.status;
+    return status.isGranted;
+  }
+
+  /// Request POST_NOTIFICATIONS permission
+  Future<bool> requestPostNotificationPermission() async {
+    final status = await Permission.notification.request();
+    return status.isGranted;
   }
 
   /// Send reply via notification listener service

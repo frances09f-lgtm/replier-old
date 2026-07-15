@@ -91,6 +91,13 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
+  Future<void> toggleConfirmBeforeReply() async {
+    await _repository.toggleConfirmBeforeReply();
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
   Future<void> toggleDarkMode() async {
     await _repository.toggleDarkMode();
     final s = _repository.getSettings();
@@ -208,11 +215,14 @@ class PermissionStatusNotifier extends StateNotifier<Map<String, bool>> {
         await _notificationService.isAccessibilityServiceEnabled();
     final batteryOptimization =
         await _notificationService.isBatteryOptimizationDisabled();
+    final postNotification =
+        await _notificationService.isPostNotificationPermissionGranted();
 
     state = {
       'notificationListener': notificationListener,
       'accessibilityService': accessibilityService,
       'batteryOptimization': batteryOptimization,
+      'postNotification': postNotification,
     };
   }
 
@@ -235,6 +245,11 @@ class PermissionStatusNotifier extends StateNotifier<Map<String, bool>> {
   Future<void> openBatteryOptimizationSettings() async {
     await _notificationService.openBatteryOptimizationSettings();
     await Future.delayed(const Duration(seconds: 2));
+    await refreshPermissions();
+  }
+
+  Future<void> requestPostNotificationPermission() async {
+    await _notificationService.requestPostNotificationPermission();
     await refreshPermissions();
   }
 }

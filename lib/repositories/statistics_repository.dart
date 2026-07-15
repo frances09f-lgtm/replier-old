@@ -21,6 +21,8 @@ class StatisticsRepository {
     return {
       'totalNotificationsReceived': _logRepository.getTotalNotificationsReceived(),
       'totalRepliesSent': _logRepository.getTotalLogsCount(),
+      'dailyNotificationsReceived': _logRepository.getDailyNotificationsReceived(),
+      'dailyRepliesSent': _logRepository.getDailyRepliesSent(),
       'lastReplySent': _logRepository.getLastReplyLog()?.dateTime,
       'activeRulesCount': _ruleRepository.getActiveRulesCount(),
       'masterEnabled': _settingsRepository.getSettings().masterEnabled,
@@ -35,6 +37,16 @@ class StatisticsRepository {
   /// Get total replies sent
   int getTotalRepliesSent() {
     return _logRepository.getTotalLogsCount();
+  }
+
+  /// Get daily notifications received
+  int getDailyNotificationsReceived() {
+    return _logRepository.getDailyNotificationsReceived();
+  }
+
+  /// Get daily replies sent
+  int getDailyRepliesSent() {
+    return _logRepository.getDailyRepliesSent();
   }
 
   /// Get last reply sent

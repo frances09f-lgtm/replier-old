@@ -1,8 +1,13 @@
 package com.example.auto_reply_assistant.service
 
 import android.app.Notification
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.RemoteInput
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -11,6 +16,8 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Notification listener that auto-replies entirely on the native side.
@@ -26,6 +33,19 @@ class AppNotificationListenerService : NotificationListenerService() {
 
     companion object {
         private const val TAG = "AppNotificationListener"
+        private const val CONFIRM_NOTIFICATION_CHANNEL_ID = "confirm_reply_channel"
+        private const val CONFIRM_NOTIFICATION_ID_BASE = 9000
+        private const val CONFIRM_TIMEOUT_MS = 15_000L
+
+        const val ACTION_APPROVE = "com.example.auto_reply_assistant.APPROVE_REPLY"
+        const val ACTION_DENY = "com.example.auto_reply_assistant.DENY_REPLY"
+        const val EXTRA_CONFIRM_ID = "confirm_id"
+        const val EXTRA_NOTIFICATION_KEY = "notification_key"
+        const val EXTRA_SENDER = "sender"
+        const val EXTRA_REPLY_TEXT = "reply_text"
+        const val EXTRA_ORIGINAL_MESSAGE = "original_message"
+        const val EXTRA_IS_AI_REPLY = "is_ai_reply"
+        const val EXTRA_AI_MODEL_TYPE = "ai_model_type"
 
         // Optional Flutter channel — used only for UI updates, not for core logic
         private var methodChannel: MethodChannel? = null
@@ -37,6 +57,26 @@ class AppNotificationListenerService : NotificationListenerService() {
 
         fun getInstance(): AppNotificationListenerService? = instance
     }
+
+    /** Data class for a reply pending user confirmation */
+    data class PendingReply(
+        val confirmId: String,
+        val notificationKey: String,
+        val sender: String,
+        val replyText: String,
+        val originalMessage: String,
+        val isAiReply: Boolean,
+        val aiModelType: String,
+        val createdAt: Long = System.currentTimeMillis(),
+    )
+
+    /** In-memory store of pending confirmations, keyed by confirmId */
+    private val pendingReplies = ConcurrentHashMap<String, PendingReply>()
+    private var confirmReceiver: BroadcastReceiver? = null
+
+    /** Cooldown map: sender -> timestamp to prevent reacting to our own sent messages */
+    private val senderCooldown = ConcurrentHashMap<String, Long>()
+    private val senderCooldownMs = 3000L
 
     private val supportedPackages = listOf(
         "com.whatsapp",
@@ -52,12 +92,15 @@ class AppNotificationListenerService : NotificationListenerService() {
         instance = this
         ruleEngine = RuleEngine(applicationContext)
         messageBatcher = MessageBatcher(mainHandler)
+        createConfirmNotificationChannel()
+        registerConfirmReceiver()
         Log.d(TAG, "AppNotificationListenerService created")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         messageBatcher.cancelAll()
+        unregisterConfirmReceiver()
         instance = null
         Log.d(TAG, "AppNotificationListenerService destroyed")
     }
@@ -79,6 +122,14 @@ class AppNotificationListenerService : NotificationListenerService() {
         val isGroupChat = isGroupChat(notification)
 
         Log.d(TAG, "Notification from $appName: $title — $message")
+
+        // Sender cooldown: skip if we just handled this sender (prevents self-message loop)
+        val now = System.currentTimeMillis()
+        val lastHandled = senderCooldown[title]
+        if (lastHandled != null && now - lastHandled < senderCooldownMs) {
+            Log.d(TAG, "Skipping: sender '$title' on cooldown (${now - lastHandled}ms ago)")
+            return
+        }
 
         // Notify Flutter UI (optional, best-effort)
         val notificationData = JSONObject().apply {
@@ -167,7 +218,24 @@ class AppNotificationListenerService : NotificationListenerService() {
             ruleEngine.wasReplyRecentlySent(title, replyText)
         ) return
 
+        // Confirm before reply: show approval notification instead of sending directly
+        if (ruleEngine.isConfirmBeforeReplyEnabled()) {
+            senderCooldown[title] = System.currentTimeMillis()
+            val delayMs = ruleEngine.getReplyDelayMs()
+            notifyReplyScheduled(title, replyText, delayMs)
+            showConfirmationNotification(
+                notificationKey = sbn.key,
+                sender = title,
+                replyText = replyText,
+                originalMessage = message,
+                isAiReply = false,
+                aiModelType = "",
+            )
+            return
+        }
+
         // Delay + send
+        senderCooldown[title] = System.currentTimeMillis()
         val delayMs = ruleEngine.getReplyDelayMs()
         notifyReplyScheduled(title, replyText, delayMs)
         mainHandler.postDelayed({
@@ -296,7 +364,10 @@ class AppNotificationListenerService : NotificationListenerService() {
 
         Log.d(TAG, "sendBatchedAiReply: sender=$sender, ${messages.size} messages, history=${history.size} entries, model=$modelType")
 
-        val onBatchResult: (String?, Int, Int, Int, Int, String?) -> Unit = { aiReply, tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error ->
+        var primaryFailed = false
+        var onBatchResult: ((String?, Int, Int, Int, Int, String?) -> Unit)? = null
+
+        onBatchResult = { aiReply, tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error ->
             if (tokensUsed > 0) {
                 ruleEngine.saveAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
                 notifyAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
@@ -308,12 +379,32 @@ class AppNotificationListenerService : NotificationListenerService() {
                 }
                 ConversationHistory.addMessage(sender, "assistant", aiReply)
 
-                // Apply the user's configured reply delay on top of the batch window
-                val delayMs = ruleEngine.getReplyDelayMs()
-                notifyReplyScheduled(sender, aiReply, delayMs)
-                mainHandler.postDelayed({
-                    sendReply(batch.latestNotificationKey, sender, aiReply, isAiReply = true, aiModelType = modelType)
-                }, delayMs)
+                // Confirm before reply: show approval notification instead of sending directly
+                if (ruleEngine.isConfirmBeforeReplyEnabled()) {
+                    senderCooldown[sender] = System.currentTimeMillis()
+                    val delayMs = ruleEngine.getReplyDelayMs()
+                    notifyReplyScheduled(sender, aiReply, delayMs)
+                    showConfirmationNotification(
+                        notificationKey = batch.latestNotificationKey,
+                        sender = sender,
+                        replyText = aiReply,
+                        originalMessage = messages.lastOrNull() ?: "",
+                        isAiReply = true,
+                        aiModelType = modelType,
+                    )
+                } else {
+                    // Apply the user's configured reply delay on top of the batch window
+                    senderCooldown[sender] = System.currentTimeMillis()
+                    val delayMs = ruleEngine.getReplyDelayMs()
+                    notifyReplyScheduled(sender, aiReply, delayMs)
+                    mainHandler.postDelayed({
+                        sendReply(batch.latestNotificationKey, sender, aiReply, isAiReply = true, aiModelType = modelType)
+                    }, delayMs)
+                }
+            } else if (!primaryFailed) {
+                primaryFailed = true
+                Log.w(TAG, "Primary AI ($modelType) failed for sender=$sender, falling back to Groq")
+                fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
             } else {
                 Log.w(TAG, "Batched AI returned empty reply for sender=$sender")
             }
@@ -330,7 +421,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                         systemPrompt = systemPrompt,
                         conversationHistory = history
                     ) { aiReply, usage ->
-                        onBatchResult(
+                        onBatchResult?.invoke(
                             aiReply,
                             usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
                             usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
@@ -338,7 +429,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                     }
                 } else {
                     Log.d(TAG, "Cerebras API key not set, falling back to Groq")
-                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult)
+                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
                 }
             }
             "gemini" -> {
@@ -352,7 +443,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                         systemPrompt = systemPrompt,
                         conversationHistory = history
                     ) { aiReply, usage ->
-                        onBatchResult(
+                        onBatchResult?.invoke(
                             aiReply,
                             usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
                             usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
@@ -360,11 +451,11 @@ class AppNotificationListenerService : NotificationListenerService() {
                     }
                 } else {
                     Log.d(TAG, "Gemini API key not set, falling back to Groq")
-                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult)
+                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
                 }
             }
             else -> {
-                fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult)
+                fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
             }
         }
     }
@@ -457,5 +548,186 @@ class AppNotificationListenerService : NotificationListenerService() {
      */
     private fun isNotificationArtifact(message: String): Boolean {
         return ConversationTranscriptBuilder.isArtifact(message)
+    }
+
+    // ── Confirm Before Reply ────────────────────────────────────────────────
+
+    private fun createConfirmNotificationChannel() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                CONFIRM_NOTIFICATION_CHANNEL_ID,
+                "Reply Confirmations",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description = "Shows confirmation before sending auto-replies"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 300)
+            }
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(channel)
+        }
+    }
+
+    private fun registerConfirmReceiver() {
+        confirmReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val confirmId = intent.getStringExtra(EXTRA_CONFIRM_ID) ?: return
+                val action = intent.action ?: return
+
+                val pending = pendingReplies.remove(confirmId) ?: return
+                val nm = getSystemService(NotificationManager::class.java)
+                nm.cancel(CONFIRM_NOTIFICATION_ID_BASE + confirmId.hashCode())
+
+                when (action) {
+                    ACTION_APPROVE -> {
+                        Log.d(TAG, "User APPROVED reply to '${pending.sender}': '${pending.replyText}'")
+                        mainHandler.postDelayed({
+                            sendReply(
+                                pending.notificationKey,
+                                pending.sender,
+                                pending.replyText,
+                                pending.isAiReply,
+                                pending.aiModelType,
+                            )
+                        }, ruleEngine.getReplyDelayMs())
+                    }
+                    ACTION_DENY -> {
+                        Log.d(TAG, "User DENIED reply to '${pending.sender}'")
+                        mainHandler.post {
+                            methodChannel?.invokeMethod("onReplyDenied", pending.sender)
+                        }
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(ACTION_APPROVE)
+            addAction(ACTION_DENY)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(confirmReceiver, filter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(confirmReceiver, filter)
+        }
+        Log.d(TAG, "Confirm receiver registered")
+    }
+
+    private fun unregisterConfirmReceiver() {
+        confirmReceiver?.let {
+            try { unregisterReceiver(it) } catch (_: Exception) {}
+        }
+        confirmReceiver = null
+    }
+
+    private fun showConfirmationNotification(
+        notificationKey: String,
+        sender: String,
+        replyText: String,
+        originalMessage: String,
+        isAiReply: Boolean,
+        aiModelType: String,
+    ) {
+        val confirmId = UUID.randomUUID().toString()
+        val notifId = CONFIRM_NOTIFICATION_ID_BASE + confirmId.hashCode()
+
+        // Store the pending reply
+        pendingReplies[confirmId] = PendingReply(
+            confirmId = confirmId,
+            notificationKey = notificationKey,
+            sender = sender,
+            replyText = replyText,
+            originalMessage = originalMessage,
+            isAiReply = isAiReply,
+            aiModelType = aiModelType,
+        )
+
+        // Build approve intent
+        val approveIntent = Intent(ACTION_APPROVE).apply {
+            putExtra(EXTRA_CONFIRM_ID, confirmId)
+            putExtra(EXTRA_NOTIFICATION_KEY, notificationKey)
+            putExtra(EXTRA_SENDER, sender)
+            putExtra(EXTRA_REPLY_TEXT, replyText)
+        }
+        val approvePending = PendingIntent.getBroadcast(
+            this, notifId, approveIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        // Build deny intent
+        val denyIntent = Intent(ACTION_DENY).apply {
+            putExtra(EXTRA_CONFIRM_ID, confirmId)
+            putExtra(EXTRA_SENDER, sender)
+        }
+        val denyPending = PendingIntent.getBroadcast(
+            this, notifId + 1, denyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        // Truncate original message aggressively so reply text is fully visible
+        val displayReply = replyText
+        val displayOriginal = if (originalMessage.length > 40) originalMessage.take(40) + "..." else originalMessage
+        val aiTag = if (isAiReply) " [AI]" else ""
+
+        val collapsedText = "Reply: $displayReply  |  From: $displayOriginal"
+        val expandedText = "Reply:\n\"$displayReply\"\n\nFrom $sender:\n\"$displayOriginal\""
+
+        val notification = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            Notification.Builder(this, CONFIRM_NOTIFICATION_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Reply to $sender?$aiTag")
+            .setContentText(collapsedText)
+            .setStyle(
+                Notification.BigTextStyle()
+                    .bigText(expandedText)
+                    .setBigContentTitle("Reply to $sender?$aiTag")
+                    .setSummaryText("Tap Send or Cancel")
+            )
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .addAction(
+                Notification.Action.Builder(
+                    null, "Send", approvePending
+                ).build()
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    null, "Cancel", denyPending
+                ).build()
+            )
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .build()
+
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(notifId, notification)
+
+        // Verify notification was actually posted (check on Android 13+)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (!nm.areNotificationsEnabled()) {
+                Log.w(TAG, "POST_NOTIFICATIONS permission not granted — notification may not be visible")
+            }
+        }
+
+        // Auto-send after timeout if not confirmed
+        mainHandler.postDelayed({
+            val pending = pendingReplies.remove(confirmId)
+            if (pending != null) {
+                Log.d(TAG, "Confirmation for '$sender' timed out — sending automatically")
+                nm.cancel(notifId)
+                sendReply(
+                    pending.notificationKey,
+                    pending.sender,
+                    pending.replyText,
+                    pending.isAiReply,
+                    pending.aiModelType,
+                )
+            }
+        }, CONFIRM_TIMEOUT_MS)
+
+        Log.d(TAG, "Showing confirmation notification for '$sender': \"$displayReply\"")
     }
 }

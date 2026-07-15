@@ -141,8 +141,8 @@ class RuleEngine(private val context: Context) {
                     replyText = it.optString("replyText", ""),
                     replies = replyList,
                     senderNames = senderList,
-                    exactMatch = it.optBoolean("exactMatch", false),
-                    containsMatch = it.optBoolean("containsMatch", true),
+                    exactMatch = it.optBoolean("exactMatch", true),
+                    containsMatch = it.optBoolean("containsMatch", false),
                     caseSensitive = it.optBoolean("caseSensitive", false),
                     isEnabled = it.optBoolean("isEnabled", true),
                     isDefault = it.optBoolean("isDefault", false),
@@ -261,6 +261,14 @@ class RuleEngine(private val context: Context) {
             if (json != "{}") return JSONObject(json).optBoolean("preventDuplicateReplies", true)
         } catch (_: Exception) {}
         return prefs.getBoolean(KEY_PREVENT_DUPLICATES, true)
+    }
+
+    fun isConfirmBeforeReplyEnabled(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optBoolean("confirmBeforeReply", false)
+        } catch (_: Exception) {}
+        return prefs.getBoolean("confirm_before_reply", false)
     }
 
     fun isWithinScheduleWindow(): Boolean {
@@ -473,6 +481,7 @@ class RuleEngine(private val context: Context) {
                 .putInt("schedule_start_minute", obj.optInt("scheduleStartMinute", 0))
                 .putInt("schedule_end_hour", obj.optInt("scheduleEndHour", 22))
                 .putInt("schedule_end_minute", obj.optInt("scheduleEndMinute", 0))
+                .putBoolean("confirm_before_reply", obj.optBoolean("confirmBeforeReply", false))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

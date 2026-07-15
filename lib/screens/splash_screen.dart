@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../core/default_rules.dart';
 import '../providers/rule_provider.dart';
 import 'dashboard_screen.dart';
@@ -20,6 +21,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
+    // Request POST_NOTIFICATIONS permission (required on Android 13+)
+    if (await Permission.notification.isDenied) {
+      await Permission.notification.request();
+    }
+
     // Navigate to dashboard after a short delay
     await Future.delayed(const Duration(seconds: 1));
 

@@ -34,6 +34,7 @@ class LogRepository {
   Future<void> addLog(ReplyLog log) async {
     final box = HiveConfig.getLogsBox();
     await box.put(log.id, log);
+    await incrementDailyRepliesSent();
 
     // Enforce maximum log limit
     final logs = getAllLogs();
@@ -61,23 +62,62 @@ class LogRepository {
     }
   }
 
+  /// Check and reset daily stats if date has changed
+  void _checkAndResetDailyStats() {
+    final statsBox = HiveConfig.getStatsBox();
+    final today = DateTime.now();
+    final todayStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    final lastReset = statsBox.get('lastResetDate', defaultValue: '') as String;
+
+    if (lastReset != todayStr) {
+      statsBox.put('dailyNotificationsReceived', 0);
+      statsBox.put('dailyRepliesSent', 0);
+      statsBox.put('lastResetDate', todayStr);
+    }
+  }
+
   /// Get total logs count (replies sent)
   int getTotalLogsCount() {
     final box = HiveConfig.getLogsBox();
     return box.length;
   }
 
+  /// Get daily replies sent
+  int getDailyRepliesSent() {
+    _checkAndResetDailyStats();
+    final statsBox = HiveConfig.getStatsBox();
+    return statsBox.get('dailyRepliesSent', defaultValue: 0) as int;
+  }
+
+  /// Increment daily replies sent counter
+  Future<void> incrementDailyRepliesSent() async {
+    _checkAndResetDailyStats();
+    final statsBox = HiveConfig.getStatsBox();
+    final current = statsBox.get('dailyRepliesSent', defaultValue: 0) as int;
+    await statsBox.put('dailyRepliesSent', current + 1);
+  }
+
   /// Increment notifications received counter
   Future<void> incrementNotificationsReceived() async {
+    _checkAndResetDailyStats();
     final statsBox = HiveConfig.getStatsBox();
     final current = statsBox.get('totalNotificationsReceived', defaultValue: 0) as int;
     await statsBox.put('totalNotificationsReceived', current + 1);
+    final daily = statsBox.get('dailyNotificationsReceived', defaultValue: 0) as int;
+    await statsBox.put('dailyNotificationsReceived', daily + 1);
   }
 
-  /// Get total notifications received
+  /// Get total notifications received (all time)
   int getTotalNotificationsReceived() {
     final statsBox = HiveConfig.getStatsBox();
     return statsBox.get('totalNotificationsReceived', defaultValue: 0) as int;
+  }
+
+  /// Get daily notifications received
+  int getDailyNotificationsReceived() {
+    _checkAndResetDailyStats();
+    final statsBox = HiveConfig.getStatsBox();
+    return statsBox.get('dailyNotificationsReceived', defaultValue: 0) as int;
   }
 
   /// Get logs count by app

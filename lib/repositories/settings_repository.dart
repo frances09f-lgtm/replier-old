@@ -95,6 +95,15 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
+  /// Toggle confirm before reply
+  Future<void> toggleConfirmBeforeReply() async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      confirmBeforeReply: !settings.confirmBeforeReply,
+    );
+    await updateSettings(updatedSettings);
+  }
+
   /// Toggle dark mode
   Future<void> toggleDarkMode() async {
     final settings = getSettings();

@@ -71,6 +71,45 @@ class DashboardScreen extends ConsumerWidget {
                 _buildScheduleBadge(context, settings),
               ],
 
+              // Confirm before reply badge
+              if (settings.confirmBeforeReply) ...[
+                const SizedBox(height: 12),
+                Card(
+                  color: Colors.amber.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.shield, color: Colors.amber.shade700, size: 24),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Safety Mode: Confirm Before Reply',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.amber.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'You will be asked to approve each reply',
+                                style: TextStyle(
+                                  color: Colors.amber.shade600,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 24),
 
               // Statistics section
@@ -152,8 +191,8 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildStatsGrid(BuildContext context, WidgetRef ref, Map<String, dynamic> stats) {
-    final totalNotifications = stats['totalNotificationsReceived'] as int? ?? 0;
-    final totalReplies = stats['totalRepliesSent'] as int? ?? 0;
+    final dailyNotifications = stats['dailyNotificationsReceived'] as int? ?? 0;
+    final dailyReplies = stats['dailyRepliesSent'] as int? ?? 0;
     final activeRules = stats['activeRulesCount'] as int? ?? 0;
 
     return Column(
@@ -163,8 +202,8 @@ class DashboardScreen extends ConsumerWidget {
             Expanded(
               child: _StatCard(
                 icon: Icons.notifications,
-                label: 'Notifications',
-                value: totalNotifications.toString(),
+                label: 'Today\'s Notifications',
+                value: dailyNotifications.toString(),
                 color: Colors.blue,
               ),
             ),
@@ -172,8 +211,8 @@ class DashboardScreen extends ConsumerWidget {
             Expanded(
               child: _StatCard(
                 icon: Icons.reply,
-                label: 'Replies Sent',
-                value: totalReplies.toString(),
+                label: 'Today\'s Replies',
+                value: dailyReplies.toString(),
                 color: Colors.green,
                 onTap: () => _showAiReplyBreakdown(context, ref),
               ),

@@ -37,6 +37,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       scheduleStartMinute: fields[20] as int? ?? 0,
       scheduleEndHour: fields[21] as int? ?? 22,
       scheduleEndMinute: fields[22] as int? ?? 0,
+      confirmBeforeReply: fields[24] as bool? ?? false,
       lastUpdated: fields[7] as DateTime,
     );
   }
@@ -44,7 +45,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(21)
+      ..writeByte(22)
       ..writeByte(0)
       ..write(obj.masterEnabled)
       ..writeByte(1)
@@ -86,7 +87,9 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(21)
       ..write(obj.scheduleEndHour)
       ..writeByte(22)
-      ..write(obj.scheduleEndMinute);
+      ..write(obj.scheduleEndMinute)
+      ..writeByte(24)
+      ..write(obj.confirmBeforeReply);
   }
 
   @override

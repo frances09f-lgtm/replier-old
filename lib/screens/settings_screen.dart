@@ -39,6 +39,15 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           _PermissionTile(
+            title: 'Post Notifications',
+            subtitle: 'Required to show confirmation alerts',
+            isGranted: permissions['postNotification'] ?? false,
+            onGrant: () => ref
+                .read(permissionStatusProvider.notifier)
+                .requestPostNotificationPermission(),
+          ),
+
+          _PermissionTile(
             title: 'Accessibility Service',
             subtitle: 'Required for auto-reply fallback',
             isGranted: permissions['accessibilityService'] ?? false,
@@ -113,6 +122,15 @@ class SettingsScreen extends ConsumerWidget {
             value: settings.ignoreGroupChats,
             onChanged: (_) {
               ref.read(appSettingsProvider.notifier).toggleIgnoreGroupChats();
+            },
+          ),
+
+          SwitchListTile(
+            title: const Text('Confirm Before Reply'),
+            subtitle: const Text('Ask before sending each reply'),
+            value: settings.confirmBeforeReply,
+            onChanged: (_) {
+              ref.read(appSettingsProvider.notifier).toggleConfirmBeforeReply();
             },
           ),
 

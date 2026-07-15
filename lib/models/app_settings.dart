@@ -70,6 +70,9 @@ class AppSettings extends HiveObject {
   @HiveField(22)
   int scheduleEndMinute;
 
+  @HiveField(24)
+  bool confirmBeforeReply;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
@@ -91,6 +94,7 @@ class AppSettings extends HiveObject {
     this.scheduleStartMinute = 0,
     this.scheduleEndHour = 22,
     this.scheduleEndMinute = 0,
+    this.confirmBeforeReply = false,
     required this.lastUpdated,
   });
 
@@ -133,6 +137,7 @@ class AppSettings extends HiveObject {
       'scheduleStartMinute': scheduleStartMinute,
       'scheduleEndHour': scheduleEndHour,
       'scheduleEndMinute': scheduleEndMinute,
+      'confirmBeforeReply': confirmBeforeReply,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -160,6 +165,7 @@ class AppSettings extends HiveObject {
       scheduleStartMinute: json['scheduleStartMinute'] ?? 0,
       scheduleEndHour: json['scheduleEndHour'] ?? 22,
       scheduleEndMinute: json['scheduleEndMinute'] ?? 0,
+      confirmBeforeReply: json['confirmBeforeReply'] ?? false,
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -186,6 +192,7 @@ class AppSettings extends HiveObject {
     int? scheduleStartMinute,
     int? scheduleEndHour,
     int? scheduleEndMinute,
+    bool? confirmBeforeReply,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -209,6 +216,7 @@ class AppSettings extends HiveObject {
       scheduleStartMinute: scheduleStartMinute ?? this.scheduleStartMinute,
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
       scheduleEndMinute: scheduleEndMinute ?? this.scheduleEndMinute,
+      confirmBeforeReply: confirmBeforeReply ?? this.confirmBeforeReply,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

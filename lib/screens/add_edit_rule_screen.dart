@@ -404,7 +404,7 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
               onChanged: (value) {
                 setState(() {
                   _exactMatch = value;
-                  if (value) _containsMatch = false;
+                  _containsMatch = !value;
                 });
               },
             ),
@@ -416,7 +416,7 @@ class _AddEditRuleScreenState extends ConsumerState<AddEditRuleScreen> {
               onChanged: (value) {
                 setState(() {
                   _containsMatch = value;
-                  if (value) _exactMatch = false;
+                  _exactMatch = !value;
                 });
               },
             ),
