@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/rule.dart';
 import '../models/app_settings.dart';
 import '../models/reply_log.dart';
+import '../models/chat_message.dart';
 import '../core/constants.dart';
 
 /// Hive configuration and initialization
@@ -25,12 +26,16 @@ class HiveConfig {
     if (!Hive.isAdapterRegistered(2)) {
       Hive.registerAdapter(ReplyLogAdapter());
     }
+    if (!Hive.isAdapterRegistered(3)) {
+      Hive.registerAdapter(ChatMessageAdapter());
+    }
     
     // Open boxes (data persists across app launches)
     await Hive.openBox<Rule>(AppConstants.rulesBox);
     await Hive.openBox<AppSettings>(AppConstants.settingsBox);
     await Hive.openBox<ReplyLog>(AppConstants.logsBox);
     await Hive.openBox(AppConstants.statsBox);
+    await Hive.openBox<ChatMessage>(AppConstants.chatBox);
     
     print('Hive boxes initialized');
   }
@@ -53,6 +58,11 @@ class HiveConfig {
   /// Get stats box (for counters like total notifications received)
   static Box getStatsBox() {
     return Hive.box(AppConstants.statsBox);
+  }
+
+  /// Get chat messages box
+  static Box<ChatMessage> getChatBox() {
+    return Hive.box<ChatMessage>(AppConstants.chatBox);
   }
 
   /// Close all boxes

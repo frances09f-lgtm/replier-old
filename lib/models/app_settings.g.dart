@@ -31,13 +31,21 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       aiModelType: fields[13] as String,
       cerebrasApiKey: fields[16] as String,
       geminiApiKey: fields[17] as String,
-      geminiApiKeysJson: fields[23] as String? ?? '[]',
-      scheduleEnabled: fields[18] as bool? ?? false,
-      scheduleStartHour: fields[19] as int? ?? 8,
-      scheduleStartMinute: fields[20] as int? ?? 0,
-      scheduleEndHour: fields[21] as int? ?? 22,
-      scheduleEndMinute: fields[22] as int? ?? 0,
-      confirmBeforeReply: fields[24] as bool? ?? false,
+      geminiApiKeysJson: fields[23] as String,
+      scheduleEnabled: fields[18] as bool,
+      scheduleStartHour: fields[19] as int,
+      scheduleStartMinute: fields[20] as int,
+      scheduleEndHour: fields[21] as int,
+      scheduleEndMinute: fields[22] as int,
+      confirmBeforeReply: fields[24] as bool,
+      contactWhitelistEnabled: fields[25] as bool,
+      contactWhitelist: (fields[26] as List).cast<String>(),
+      contactBlacklist: (fields[27] as List).cast<String>(),
+      busyModeEnabled: fields[28] as bool,
+      busyReplyText: fields[29] as String,
+      busyUntilTimestamp: fields[30] as int,
+      gemmaLocalServerUrl: fields[31] as String,
+      gemmaLocalModel: fields[32] as String,
       lastUpdated: fields[7] as DateTime,
     );
   }
@@ -45,7 +53,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(22)
+      ..writeByte(30)
       ..writeByte(0)
       ..write(obj.masterEnabled)
       ..writeByte(1)
@@ -89,7 +97,23 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(22)
       ..write(obj.scheduleEndMinute)
       ..writeByte(24)
-      ..write(obj.confirmBeforeReply);
+      ..write(obj.confirmBeforeReply)
+      ..writeByte(25)
+      ..write(obj.contactWhitelistEnabled)
+      ..writeByte(26)
+      ..write(obj.contactWhitelist)
+      ..writeByte(27)
+      ..write(obj.contactBlacklist)
+      ..writeByte(28)
+      ..write(obj.busyModeEnabled)
+      ..writeByte(29)
+      ..write(obj.busyReplyText)
+      ..writeByte(30)
+      ..write(obj.busyUntilTimestamp)
+      ..writeByte(31)
+      ..write(obj.gemmaLocalServerUrl)
+      ..writeByte(32)
+      ..write(obj.gemmaLocalModel);
   }
 
   @override

@@ -51,11 +51,21 @@ class AppNotificationListenerService : NotificationListenerService() {
         private var methodChannel: MethodChannel? = null
         private var instance: AppNotificationListenerService? = null
 
+        // Chatbot context from the Flutter chatbot — injected into AI auto-reply system prompt
+        private var chatbotContext: String = ""
+
         fun setMethodChannel(channel: MethodChannel) {
             methodChannel = channel
         }
 
         fun getInstance(): AppNotificationListenerService? = instance
+
+        fun setChatbotContext(context: String) {
+            chatbotContext = context
+            Log.d(TAG, "Chatbot context updated (${context.length} chars)")
+        }
+
+        fun getChatbotContext(): String = chatbotContext
     }
 
     /** Data class for a reply pending user confirmation */
@@ -181,6 +191,34 @@ class AppNotificationListenerService : NotificationListenerService() {
         val rule = ruleEngine.findMatchingRule(message, sender = title)
 
         if (rule == null) {
+            // Busy mode check — if user set a busy status from chatbot, use it
+            val busyText = ruleEngine.getBusyReplyText()
+            if (ruleEngine.isBusyModeActive() && busyText.isNotBlank()) {
+                Log.d(TAG, "Busy mode active, using busy reply: '$busyText'")
+                ConversationHistory.addMessage(title, "user", message)
+                if (ruleEngine.isConfirmBeforeReplyEnabled()) {
+                    showConfirmationNotification(
+                        notificationKey = sbn.key,
+                        sender = title,
+                        replyText = busyText,
+                        originalMessage = message,
+                        isAiReply = false,
+                        aiModelType = "busy_mode",
+                    )
+                } else {
+                    senderCooldown[title] = System.currentTimeMillis()
+                    val delayMs = ruleEngine.getReplyDelayMs()
+                    notifyReplyScheduled(title, busyText, delayMs)
+                    val replyToSend = busyText
+                    val senderName = title
+                    mainHandler.postDelayed({
+                        ConversationHistory.addMessage(senderName, "assistant", replyToSend)
+                        sendReply(sbn.key, senderName, replyToSend)
+                    }, delayMs)
+                }
+                return
+            }
+
             // AI fallback if enabled — buffer messages and batch replies
             if (ruleEngine.isAiReplyEnabled()) {
                 // Skip notification artifacts (typing indicators, "X new messages", etc.)
@@ -354,6 +392,12 @@ class AppNotificationListenerService : NotificationListenerService() {
         val messages = batch.messages.map { it.message }
         val rawHistory = ConversationHistory.getHistory(sender)
         val systemPrompt = ruleEngine.getAiSystemPrompt()
+        val chatbotCtx = getChatbotContext()
+        val finalSystemPrompt = if (chatbotCtx.isNotEmpty()) {
+            "$systemPrompt\n\n---\nCHAT CONTEXT (Abhi told the chatbot this — use it for awareness but do NOT mention the chatbot):\n$chatbotCtx\n---"
+        } else {
+            systemPrompt
+        }
 
         // Build a clean transcript: filter artifacts, dedup, merge, cap tokens
         val history = ConversationTranscriptBuilder.build(
@@ -404,13 +448,40 @@ class AppNotificationListenerService : NotificationListenerService() {
             } else if (!primaryFailed) {
                 primaryFailed = true
                 Log.w(TAG, "Primary AI ($modelType) failed for sender=$sender, falling back to Groq")
-                fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
+                fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
             } else {
                 Log.w(TAG, "Batched AI returned empty reply for sender=$sender")
             }
         }
 
         when (modelType) {
+            "smart_reply" -> {
+                SmartReplyService().getAiReplyBatch(
+                    senderName = sender,
+                    incomingMessages = messages,
+                    conversationHistory = history
+                ) { aiReply, usage ->
+                    onBatchResult?.invoke(
+                        aiReply,
+                        usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                        usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                    )
+                }
+            }
+            "gemma_local" -> {
+                GemmaLocalService(applicationContext).getAiReplyBatch(
+                    senderName = sender,
+                    incomingMessages = messages,
+                    systemPrompt = finalSystemPrompt,
+                    conversationHistory = history
+                ) { aiReply, usage ->
+                    onBatchResult?.invoke(
+                        aiReply,
+                        usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                        usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                    )
+                }
+            }
             "cerebras" -> {
                 val apiKey = ruleEngine.getCerebrasApiKey()
                 if (apiKey.isNotEmpty()) {
@@ -418,7 +489,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                         apiKey = apiKey,
                         senderName = sender,
                         incomingMessages = messages,
-                        systemPrompt = systemPrompt,
+                        systemPrompt = finalSystemPrompt,
                         conversationHistory = history
                     ) { aiReply, usage ->
                         onBatchResult?.invoke(
@@ -429,7 +500,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                     }
                 } else {
                     Log.d(TAG, "Cerebras API key not set, falling back to Groq")
-                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
+                    fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
                 }
             }
             "gemini" -> {
@@ -440,7 +511,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                         model = "gemini-2.5-flash",
                         senderName = sender,
                         incomingMessages = messages,
-                        systemPrompt = systemPrompt,
+                        systemPrompt = finalSystemPrompt,
                         conversationHistory = history
                     ) { aiReply, usage ->
                         onBatchResult?.invoke(
@@ -451,11 +522,11 @@ class AppNotificationListenerService : NotificationListenerService() {
                     }
                 } else {
                     Log.d(TAG, "Gemini API key not set, falling back to Groq")
-                    fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
+                    fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
                 }
             }
             else -> {
-                fallBackToGroq(sender, messages, history, systemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
+                fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
             }
         }
     }

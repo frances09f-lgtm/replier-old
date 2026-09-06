@@ -20,7 +20,7 @@ class AppConstants {
   static const String instagramPackage = 'com.instagram.android';
 
   // Default settings
-  static const int defaultMinReplyDelay = 0;
+  static const int defaultMinReplyDelay = 1;
   static const int defaultMaxReplyDelay = 10;
   static const int maxReplyDelay = 300;
   static const bool defaultPreventDuplicateReplies = true;
@@ -28,7 +28,7 @@ class AppConstants {
 
   // AI defaults
   static const bool defaultAiReplyEnabled = false;
-  static const String defaultAiModelType = 'groq';
+  static const String defaultAiModelType = 'smart_reply';
   static const String defaultLocalModelPath = '';
   static const bool defaultLocalModelDownloaded = false;
   static const String defaultHfToken = '';
@@ -40,6 +40,9 @@ class AppConstants {
   static const int defaultScheduleStartMinute = 0;
   static const int defaultScheduleEndHour = 22;
   static const int defaultScheduleEndMinute = 0;
+
+  // Hive box names
+  static const String chatBox = 'chat_messages';
 
   // Storage limits
   static const int maxLogs = 1000;

@@ -190,6 +190,16 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
+  /// Update Gemma Local server config
+  Future<void> updateGemmaLocalConfig(String serverUrl, String model) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      gemmaLocalServerUrl: serverUrl,
+      gemmaLocalModel: model,
+    );
+    await updateSettings(updatedSettings);
+  }
+
   /// Update schedule settings
   Future<void> updateSchedule({
     required bool enabled,
@@ -207,6 +217,113 @@ class SettingsRepository {
       scheduleEndMinute: endMinute,
     );
     await updateSettings(updatedSettings);
+  }
+
+  /// Toggle contact whitelist enabled
+  Future<void> toggleContactWhitelist() async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      contactWhitelistEnabled: !settings.contactWhitelistEnabled,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update the entire contact whitelist
+  Future<void> updateContactWhitelist(List<String> contacts) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(contactWhitelist: contacts);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Add a contact to the whitelist
+  Future<void> addToWhitelist(String contact) async {
+    final settings = getSettings();
+    final list = List<String>.from(settings.contactWhitelist);
+    if (!list.any((c) => c.toLowerCase() == contact.toLowerCase())) {
+      list.add(contact);
+      final updatedSettings = settings.copyWith(contactWhitelist: list);
+      await updateSettings(updatedSettings);
+    }
+  }
+
+  /// Remove a contact from the whitelist
+  Future<void> removeFromWhitelist(String contact) async {
+    final settings = getSettings();
+    final list = List<String>.from(settings.contactWhitelist);
+    list.removeWhere((c) => c.toLowerCase() == contact.toLowerCase());
+    final updatedSettings = settings.copyWith(contactWhitelist: list);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update the entire contact blacklist
+  Future<void> updateContactBlacklist(List<String> contacts) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(contactBlacklist: contacts);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Add a contact to the blacklist
+  Future<void> addToBlacklist(String contact) async {
+    final settings = getSettings();
+    final list = List<String>.from(settings.contactBlacklist);
+    if (!list.any((c) => c.toLowerCase() == contact.toLowerCase())) {
+      list.add(contact);
+      final updatedSettings = settings.copyWith(contactBlacklist: list);
+      await updateSettings(updatedSettings);
+    }
+  }
+
+  /// Remove a contact from the blacklist
+  Future<void> removeFromBlacklist(String contact) async {
+    final settings = getSettings();
+    final list = List<String>.from(settings.contactBlacklist);
+    list.removeWhere((c) => c.toLowerCase() == contact.toLowerCase());
+    final updatedSettings = settings.copyWith(contactBlacklist: list);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Check if a contact is blacklisted
+  bool isContactBlacklisted(String contact) {
+    final settings = getSettings();
+    return settings.contactBlacklist
+        .any((c) => c.toLowerCase() == contact.toLowerCase());
+  }
+
+  /// Check if a contact is whitelisted
+  bool isContactWhitelisted(String contact) {
+    final settings = getSettings();
+    return settings.contactWhitelist
+        .any((c) => c.toLowerCase() == contact.toLowerCase());
+  }
+
+  /// Update busy mode settings
+  Future<void> updateBusyMode(String replyText, int untilTimestamp) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      busyModeEnabled: true,
+      busyReplyText: replyText,
+      busyUntilTimestamp: untilTimestamp,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Clear busy mode
+  Future<void> clearBusyMode() async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      busyModeEnabled: false,
+      busyReplyText: '',
+      busyUntilTimestamp: 0,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Check if busy mode is active (enabled and not expired)
+  bool isBusyModeActive() {
+    final settings = getSettings();
+    if (!settings.busyModeEnabled) return false;
+    if (settings.busyUntilTimestamp <= 0) return true;
+    return DateTime.now().millisecondsSinceEpoch < settings.busyUntilTimestamp;
   }
 
   /// Check if app is enabled for a specific package

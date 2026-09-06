@@ -29,7 +29,7 @@ class RuleAdapter extends TypeAdapter<Rule> {
       triggerTexts: (fields[9] as List?)?.cast<String>(),
       replies: (fields[10] as List?)?.cast<String>(),
       senderNames: (fields[11] as List?)?.cast<String>(),
-      isDefault: fields[12] as bool? ?? false,
+      isDefault: fields[12] as bool,
     );
   }
 

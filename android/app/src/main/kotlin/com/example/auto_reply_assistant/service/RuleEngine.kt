@@ -33,6 +33,10 @@ class RuleEngine(private val context: Context) {
         const val KEY_MAX_REPLY_DELAY_SECONDS = "max_reply_delay_seconds"
         const val KEY_PREVENT_DUPLICATES = "prevent_duplicate_replies"
 
+        private const val KEY_CONTACT_WHITELIST_ENABLED = "contact_whitelist_enabled"
+        private const val KEY_CONTACT_WHITELIST = "contact_whitelist"
+        private const val KEY_CONTACT_BLACKLIST = "contact_blacklist"
+
         private const val RULES_FILE = "auto_reply_rules.json"
         private const val SETTINGS_FILE = "auto_reply_settings.json"
     }
@@ -156,6 +160,24 @@ class RuleEngine(private val context: Context) {
 
     /** Find the first matching rule for a given message and sender */
     fun findMatchingRule(message: String, sender: String? = null): Rule? {
+        // Blacklist check: skip if sender is blacklisted
+        if (sender != null) {
+            val blacklist = getContactBlacklist()
+            if (blacklist.any { it.equals(sender, ignoreCase = true) }) {
+                Log.d(TAG, "findMatchingRule: sender '$sender' is blacklisted")
+                return null
+            }
+        }
+
+        // Whitelist check: if enabled, sender must be in the whitelist
+        if (sender != null && isContactWhitelistEnabled()) {
+            val whitelist = getContactWhitelist()
+            if (whitelist.isNotEmpty() && !whitelist.any { it.equals(sender, ignoreCase = true) }) {
+                Log.d(TAG, "findMatchingRule: sender '$sender' not in whitelist")
+                return null
+            }
+        }
+
         val rules = getEnabledRules()
         Log.d(TAG, "findMatchingRule: '${message.take(60)}' from '$sender' vs ${rules.size} rules")
         val match = rules.firstOrNull { it.matches(message, sender) }
@@ -243,14 +265,14 @@ class RuleEngine(private val context: Context) {
             val json = readSettingsJson()
             if (json != "{}") {
                 val obj = JSONObject(json)
-                minSec = obj.optInt("minReplyDelaySeconds", 0)
-                maxSec = obj.optInt("maxReplyDelaySeconds", 10)
+                minSec = maxOf(obj.optInt("minReplyDelaySeconds", 1), 1)
+                maxSec = maxOf(obj.optInt("maxReplyDelaySeconds", 10), 1)
                 val delay = if (minSec >= maxSec) minSec else Random.nextInt(minSec, maxSec + 1)
                 return delay * 1000L
             }
         } catch (_: Exception) {}
-        val fallbackMin = prefs.getInt(KEY_MIN_REPLY_DELAY_SECONDS, 0)
-        val fallbackMax = prefs.getInt(KEY_MAX_REPLY_DELAY_SECONDS, 10)
+        val fallbackMin = maxOf(prefs.getInt(KEY_MIN_REPLY_DELAY_SECONDS, 1), 1)
+        val fallbackMax = maxOf(prefs.getInt(KEY_MAX_REPLY_DELAY_SECONDS, 10), 1)
         val delay = if (fallbackMin >= fallbackMax) fallbackMin else Random.nextInt(fallbackMin, fallbackMax + 1)
         return delay * 1000L
     }
@@ -269,6 +291,44 @@ class RuleEngine(private val context: Context) {
             if (json != "{}") return JSONObject(json).optBoolean("confirmBeforeReply", false)
         } catch (_: Exception) {}
         return prefs.getBoolean("confirm_before_reply", false)
+    }
+
+    fun isContactWhitelistEnabled(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optBoolean("contactWhitelistEnabled", false)
+        } catch (_: Exception) {}
+        return prefs.getBoolean(KEY_CONTACT_WHITELIST_ENABLED, false)
+    }
+
+    fun getContactWhitelist(): List<String> {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                val arr = JSONObject(json).optJSONArray("contactWhitelist")
+                if (arr != null) return (0 until arr.length()).map { arr.getString(it) }
+            }
+        } catch (_: Exception) {}
+        return try {
+            val raw = prefs.getString(KEY_CONTACT_WHITELIST, "[]") ?: "[]"
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    fun getContactBlacklist(): List<String> {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                val arr = JSONObject(json).optJSONArray("contactBlacklist")
+                if (arr != null) return (0 until arr.length()).map { arr.getString(it) }
+            }
+        } catch (_: Exception) {}
+        return try {
+            val raw = prefs.getString(KEY_CONTACT_BLACKLIST, "[]") ?: "[]"
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (_: Exception) { emptyList() }
     }
 
     fun isWithinScheduleWindow(): Boolean {
@@ -377,6 +437,48 @@ class RuleEngine(private val context: Context) {
         return prefs.getString("cerebras_api_key", "") ?: ""
     }
 
+    fun getGemmaLocalServerUrl(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("gemmaLocalServerUrl", "")
+        } catch (_: Exception) {}
+        return prefs.getString("gemma_local_server_url", "") ?: ""
+    }
+
+    fun getGemmaLocalModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("gemmaLocalModel", "gemma3:270m")
+        } catch (_: Exception) {}
+        return prefs.getString("gemma_local_model", "gemma3:270m") ?: "gemma3:270m"
+    }
+
+    // ── Busy Mode ─────────────────────────────────────────────────────────
+
+    fun isBusyModeActive(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                val obj = JSONObject(json)
+                val enabled = obj.optBoolean("busyModeEnabled", false)
+                if (!enabled) return false
+                val until = obj.optLong("busyUntilTimestamp", 0)
+                return if (until > 0) System.currentTimeMillis() < until else true
+            }
+        } catch (_: Exception) {}
+        return false
+    }
+
+    fun getBusyReplyText(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                return JSONObject(json).optString("busyReplyText", "")
+            }
+        } catch (_: Exception) {}
+        return ""
+    }
+
     fun getAiSystemPrompt(): String {
         try {
             val json = readSettingsJson()
@@ -482,6 +584,14 @@ class RuleEngine(private val context: Context) {
                 .putInt("schedule_end_hour", obj.optInt("scheduleEndHour", 22))
                 .putInt("schedule_end_minute", obj.optInt("scheduleEndMinute", 0))
                 .putBoolean("confirm_before_reply", obj.optBoolean("confirmBeforeReply", false))
+                .putBoolean("busy_mode_enabled", obj.optBoolean("busyModeEnabled", false))
+                .putString("busy_reply_text", obj.optString("busyReplyText", ""))
+                .putLong("busy_until_timestamp", obj.optLong("busyUntilTimestamp", 0))
+                .putString("gemma_local_server_url", obj.optString("gemmaLocalServerUrl", ""))
+                .putString("gemma_local_model", obj.optString("gemmaLocalModel", "gemma3:270m"))
+                .putBoolean(KEY_CONTACT_WHITELIST_ENABLED, obj.optBoolean("contactWhitelistEnabled", false))
+                .putString(KEY_CONTACT_WHITELIST, obj.optString("contactWhitelist", "[]"))
+                .putString(KEY_CONTACT_BLACKLIST, obj.optString("contactBlacklist", "[]"))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

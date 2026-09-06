@@ -73,11 +73,35 @@ class AppSettings extends HiveObject {
   @HiveField(24)
   bool confirmBeforeReply;
 
+  @HiveField(25)
+  bool contactWhitelistEnabled;
+
+  @HiveField(26)
+  List<String> contactWhitelist;
+
+  @HiveField(27)
+  List<String> contactBlacklist;
+
+  @HiveField(28)
+  bool busyModeEnabled;
+
+  @HiveField(29)
+  String busyReplyText;
+
+  @HiveField(30)
+  int busyUntilTimestamp;
+
+  @HiveField(31)
+  String gemmaLocalServerUrl;
+
+  @HiveField(32)
+  String gemmaLocalModel;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
     this.instagramEnabled = true,
-    this.minReplyDelaySeconds = 0,
+    this.minReplyDelaySeconds = 1,
     this.maxReplyDelaySeconds = 10,
     this.preventDuplicateReplies = true,
     this.ignoreGroupChats = true,
@@ -85,7 +109,7 @@ class AppSettings extends HiveObject {
     this.aiReplyEnabled = false,
     this.groqApiKey = '',
     this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
-    this.aiModelType = 'groq',
+    this.aiModelType = 'smart_reply',
     this.cerebrasApiKey = '',
     this.geminiApiKey = '',
     this.geminiApiKeysJson = '[]',
@@ -95,7 +119,15 @@ class AppSettings extends HiveObject {
     this.scheduleEndHour = 22,
     this.scheduleEndMinute = 0,
     this.confirmBeforeReply = false,
-    required this.lastUpdated,
+    this.contactWhitelistEnabled = false,
+    this.contactWhitelist = const [],
+    this.contactBlacklist = const [],
+      this.busyModeEnabled = false,
+      this.busyReplyText = '',
+      this.busyUntilTimestamp = 0,
+      this.gemmaLocalServerUrl = '',
+      this.gemmaLocalModel = 'gemma3:270m',
+      required this.lastUpdated,
   });
 
   /// Returns the list of Gemini API keys.
@@ -138,6 +170,14 @@ class AppSettings extends HiveObject {
       'scheduleEndHour': scheduleEndHour,
       'scheduleEndMinute': scheduleEndMinute,
       'confirmBeforeReply': confirmBeforeReply,
+      'contactWhitelistEnabled': contactWhitelistEnabled,
+      'contactWhitelist': contactWhitelist,
+      'contactBlacklist': contactBlacklist,
+      'busyModeEnabled': busyModeEnabled,
+      'busyReplyText': busyReplyText,
+      'busyUntilTimestamp': busyUntilTimestamp,
+      'gemmaLocalServerUrl': gemmaLocalServerUrl,
+      'gemmaLocalModel': gemmaLocalModel,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -148,7 +188,7 @@ class AppSettings extends HiveObject {
       masterEnabled: json['masterEnabled'] ?? true,
       whatsappEnabled: json['whatsappEnabled'] ?? true,
       instagramEnabled: json['instagramEnabled'] ?? true,
-      minReplyDelaySeconds: json['minReplyDelaySeconds'] ?? json['replyDelaySeconds'] ?? 0,
+      minReplyDelaySeconds: json['minReplyDelaySeconds'] ?? json['replyDelaySeconds'] ?? 1,
       maxReplyDelaySeconds: json['maxReplyDelaySeconds'] ?? json['replyDelaySeconds'] ?? 10,
       preventDuplicateReplies: json['preventDuplicateReplies'] ?? true,
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
@@ -166,6 +206,14 @@ class AppSettings extends HiveObject {
       scheduleEndHour: json['scheduleEndHour'] ?? 22,
       scheduleEndMinute: json['scheduleEndMinute'] ?? 0,
       confirmBeforeReply: json['confirmBeforeReply'] ?? false,
+      contactWhitelistEnabled: json['contactWhitelistEnabled'] ?? false,
+      contactWhitelist: (json['contactWhitelist'] as List?)?.cast<String>() ?? [],
+      contactBlacklist: (json['contactBlacklist'] as List?)?.cast<String>() ?? [],
+      busyModeEnabled: json['busyModeEnabled'] ?? false,
+      busyReplyText: json['busyReplyText'] ?? '',
+      busyUntilTimestamp: json['busyUntilTimestamp'] ?? 0,
+      gemmaLocalServerUrl: (json['gemmaLocalServerUrl'] as String?) ?? '',
+      gemmaLocalModel: (json['gemmaLocalModel'] as String?) ?? 'gemma3:270m',
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -193,6 +241,14 @@ class AppSettings extends HiveObject {
     int? scheduleEndHour,
     int? scheduleEndMinute,
     bool? confirmBeforeReply,
+    bool? contactWhitelistEnabled,
+    List<String>? contactWhitelist,
+    List<String>? contactBlacklist,
+    bool? busyModeEnabled,
+    String? busyReplyText,
+    int? busyUntilTimestamp,
+    String? gemmaLocalServerUrl,
+    String? gemmaLocalModel,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -217,6 +273,14 @@ class AppSettings extends HiveObject {
       scheduleEndHour: scheduleEndHour ?? this.scheduleEndHour,
       scheduleEndMinute: scheduleEndMinute ?? this.scheduleEndMinute,
       confirmBeforeReply: confirmBeforeReply ?? this.confirmBeforeReply,
+      contactWhitelistEnabled: contactWhitelistEnabled ?? this.contactWhitelistEnabled,
+      contactWhitelist: contactWhitelist ?? this.contactWhitelist,
+      contactBlacklist: contactBlacklist ?? this.contactBlacklist,
+      busyModeEnabled: busyModeEnabled ?? this.busyModeEnabled,
+      busyReplyText: busyReplyText ?? this.busyReplyText,
+      busyUntilTimestamp: busyUntilTimestamp ?? this.busyUntilTimestamp,
+      gemmaLocalServerUrl: gemmaLocalServerUrl ?? this.gemmaLocalServerUrl,
+      gemmaLocalModel: gemmaLocalModel ?? this.gemmaLocalModel,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

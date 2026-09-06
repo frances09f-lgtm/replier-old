@@ -74,6 +74,13 @@ object ConversationTranscriptBuilder {
             Regex("""(?i)^Liked\s+a\s+message"""),
             Regex("""(?i)^Replied\s+to\s+a\s+story"""),
             Regex("""(?i)^started\s+a\s+live\s+video"""),
+
+            // File/media names (from shared media, screenshots, etc.)
+            Regex("""(?i)\.(png|jpg|jpeg|gif|bmp|webp|svg|mp4|avi|mov|mkv|mp3|wav|ogg|pdf|docx?|xlsx?|zip|rar|7z)$"""),
+            Regex("""(?i)^(image|photo|picture|video|audio|file|document|sticker|gif)\s*(\.\w+)?$"""),
+            Regex("""(?i)^\d+\s+(photo|photo|video|image|document|file)s?$"""),
+            Regex("""(?i)^(image|video|audio|document)\s+(attached|sent|received)$"""),
+            Regex("""(?i)^(sent|shared)\s+(a|an)\s+(image|photo|picture|video|audio|file|document|sticker|gif)"""),
         )
     }
 

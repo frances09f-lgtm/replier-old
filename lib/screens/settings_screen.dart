@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_settings.dart';
 import '../providers/settings_provider.dart';
@@ -186,6 +187,23 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ],
 
+          // Busy mode indicator
+          if (settings.busyModeEnabled && settings.busyUntilTimestamp > DateTime.now().millisecondsSinceEpoch) ...[
+            Card(
+              color: Colors.blue[50],
+              child: ListTile(
+                leading: Icon(Icons.timer, color: Colors.blue[700]),
+                title: const Text('Busy Mode Active', style: TextStyle(fontWeight: FontWeight.w500)),
+                subtitle: Text('"${settings.busyReplyText}" until ${_formatBusyUntil(settings.busyUntilTimestamp)}'),
+                trailing: IconButton(
+                  icon: Icon(Icons.cancel, color: Colors.red[400]),
+                  onPressed: () => ref.read(appSettingsProvider.notifier).clearBusyMode(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           const SizedBox(height: 24),
           Text(
             'AI Auto-Reply',
@@ -195,11 +213,15 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            settings.aiModelType == 'gemini'
-                ? 'Uses Google Gemini (1,500 req/day free) to generate replies when no rule matches'
-                : settings.aiModelType == 'cerebras'
-                    ? 'Uses Cerebras (ultra-fast inference) to generate replies when no rule matches'
-                    : 'Uses Groq (free) to generate replies when no rule matches',
+            settings.aiModelType == 'smart_reply'
+                ? 'Uses on-device ML Kit Smart Reply (no API key, no internet needed)'
+                : settings.aiModelType == 'gemma_local'
+                    ? 'Uses on-device Gemma 3 270M LLM (fully offline, download model on first use)'
+                    : settings.aiModelType == 'gemini'
+                        ? 'Uses Google Gemini (1,500 req/day free) to generate replies when no rule matches'
+                        : settings.aiModelType == 'cerebras'
+                            ? 'Uses Cerebras (ultra-fast inference) to generate replies when no rule matches'
+                            : 'Uses Groq (free) to generate replies when no rule matches',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Colors.grey[600],
             ),
@@ -215,28 +237,54 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
 
-          if (settings.aiReplyEnabled) ...[
-            // Model type selector
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('AI Model', style: TextStyle(fontWeight: FontWeight.w500)),
-                  const SizedBox(height: 4),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Radio<String>(
-                      value: 'groq',
-                      groupValue: settings.aiModelType,
-                      onChanged: (v) {
-                        ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
-                      },
+            if (settings.aiReplyEnabled) ...[
+              // Model type selector
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('AI Model', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 4),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Radio<String>(
+                        value: 'smart_reply',
+                        groupValue: settings.aiModelType,
+                        onChanged: (v) {
+                          ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
+                        },
+                      ),
+                      title: const Text('Smart Reply (On-Device)'),
+                      subtitle: const Text('No API key, works offline, on-device AI'),
+                      onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('smart_reply'),
                     ),
-                    title: const Text('Groq API (Cloud)'),
-                    subtitle: const Text('Requires API key, rate limits apply'),
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('groq'),
-                  ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Radio<String>(
+                        value: 'gemma_local',
+                        groupValue: settings.aiModelType,
+                        onChanged: (v) {
+                          ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
+                        },
+                      ),
+                      title: const Text('Gemma 3 270M (On-Device)'),
+                      subtitle: const Text('No API key, fully offline, runs on device'),
+                      onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('gemma_local'),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Radio<String>(
+                        value: 'groq',
+                        groupValue: settings.aiModelType,
+                        onChanged: (v) {
+                          ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
+                        },
+                      ),
+                      title: const Text('Groq API (Cloud)'),
+                      subtitle: const Text('Requires API key, rate limits apply'),
+                      onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('groq'),
+                    ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Radio<String>(
@@ -297,17 +345,35 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
 
-            ListTile(
-              title: const Text('System Prompt'),
-              subtitle: Text(
-                settings.aiSystemPrompt.length > 50
-                    ? '${settings.aiSystemPrompt.substring(0, 50)}...'
-                    : settings.aiSystemPrompt,
-              ),
+            if (settings.aiModelType == 'gemma_local') ...[
+              const _GemmaLocalModelTile(),
+            ],
+
+            if (settings.aiModelType != 'smart_reply')
+              ListTile(
+                title: const Text('System Prompt'),
+                subtitle: Text(
+                  settings.aiSystemPrompt.length > 50
+                      ? '${settings.aiSystemPrompt.substring(0, 50)}...'
+                      : settings.aiSystemPrompt,
+                ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showSystemPromptDialog(context, ref, settings.aiSystemPrompt),
             ),
           ],
+
+          const SizedBox(height: 24),
+
+          // Contact Filtering section
+          Text(
+            'Contact Filtering',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+
+          _buildContactWhitelistSection(context, ref, settings),
+          const SizedBox(height: 8),
+          _buildContactBlacklistSection(context, ref, settings),
 
           const SizedBox(height: 24),
 
@@ -366,6 +432,14 @@ class SettingsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  String _formatBusyUntil(int timestampMillis) {
+    final remaining = Duration(milliseconds: timestampMillis - DateTime.now().millisecondsSinceEpoch);
+    if (remaining.isNegative) return 'expired';
+    if (remaining.inDays > 0) return '${remaining.inDays}d ${remaining.inHours % 24}h remaining';
+    if (remaining.inHours > 0) return '${remaining.inHours}h ${remaining.inMinutes % 60}m remaining';
+    return '${remaining.inMinutes}m remaining';
   }
 
   String _formatTime(int hour, int minute) {
@@ -605,6 +679,232 @@ class SettingsScreen extends ConsumerWidget {
         );
       }
     }
+  }
+
+  Widget _buildContactWhitelistSection(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final contacts = settings.contactWhitelist;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          title: const Text('Contact Whitelist'),
+          subtitle: const Text('Only reply to these contacts when enabled'),
+          value: settings.contactWhitelistEnabled,
+          onChanged: (_) {
+            ref.read(appSettingsProvider.notifier).toggleContactWhitelist();
+          },
+        ),
+        if (settings.contactWhitelistEnabled) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    contacts.isEmpty
+                        ? 'No contacts added — all messages will be blocked'
+                        : '${contacts.length} contact${contacts.length == 1 ? '' : 's'}',
+                    style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add'),
+                  onPressed: () => _showContactListDialog(
+                    context, ref, contacts, 'Whitelist',
+                    (list) => ref.read(appSettingsProvider.notifier).updateContactWhitelist(list),
+                    (c) => ref.read(appSettingsProvider.notifier).addToWhitelist(c),
+                    (c) => ref.read(appSettingsProvider.notifier).removeFromWhitelist(c),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (contacts.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: contacts.map((name) {
+                  return Chip(
+                    label: Text(name, style: const TextStyle(fontSize: 12)),
+                    deleteIcon: const Icon(Icons.close, size: 16),
+                    onDeleted: () {
+                      ref.read(appSettingsProvider.notifier).removeFromWhitelist(name);
+                    },
+                  );
+                }).toList(),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildContactBlacklistSection(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final contacts = settings.contactBlacklist;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Blacklisted Contacts',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Add'),
+                onPressed: () => _showContactListDialog(
+                  context, ref, contacts, 'Blacklist',
+                  (list) => ref.read(appSettingsProvider.notifier).updateContactBlacklist(list),
+                  (c) => ref.read(appSettingsProvider.notifier).addToBlacklist(c),
+                  (c) => ref.read(appSettingsProvider.notifier).removeFromBlacklist(c),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (contacts.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: contacts.map((name) {
+                return Chip(
+                  label: Text(name, style: const TextStyle(fontSize: 12)),
+                  deleteIcon: const Icon(Icons.close, size: 16),
+                  onDeleted: () {
+                    ref.read(appSettingsProvider.notifier).removeFromBlacklist(name);
+                  },
+                );
+              }).toList(),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'No blacklisted contacts',
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            'Blacklisted contacts will never receive auto-replies. '
+            'Whitelist takes priority when enabled.',
+            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showContactListDialog(
+    BuildContext context,
+    WidgetRef ref,
+    List<String> initialList,
+    String label,
+    void Function(List<String>) onSave,
+    void Function(String) onAdd,
+    void Function(String) onRemove,
+  ) {
+    final contacts = List<String>.from(initialList);
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('$label Contacts'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (contacts.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Add contact names exactly as they appear in notifications.',
+                      style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
+                  ),
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: contacts.length,
+                    itemBuilder: (context, index) {
+                      final contact = contacts[index];
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.person, size: 20),
+                        title: Text(contact, style: const TextStyle(fontSize: 13)),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          onPressed: () {
+                            contacts.removeAt(index);
+                            setDialogState(() {});
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const Divider(),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: controller,
+                        decoration: const InputDecoration(
+                          hintText: 'Contact name',
+                          labelText: 'Add contact',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: Colors.green),
+                      onPressed: () {
+                        final name = controller.text.trim();
+                        if (name.isNotEmpty && !contacts.any((c) => c.toLowerCase() == name.toLowerCase())) {
+                          contacts.add(name);
+                          controller.clear();
+                          setDialogState(() {});
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () {
+                onSave(contacts);
+                Navigator.pop(context);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildGeminiKeysSection(BuildContext context, WidgetRef ref, AppSettings settings) {
@@ -921,6 +1221,177 @@ class SettingsScreen extends ConsumerWidget {
             },
             child: const Text('Save'),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GemmaLocalModelTile extends StatefulWidget {
+  const _GemmaLocalModelTile();
+
+  @override
+  State<_GemmaLocalModelTile> createState() => _GemmaLocalModelTileState();
+}
+
+class _GemmaLocalModelTileState extends State<_GemmaLocalModelTile> {
+  bool _modelAvailable = false;
+  bool _downloading = false;
+  int _downloadProgress = 0;
+  bool _checking = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkStatus();
+  }
+
+  Future<void> _checkStatus() async {
+    try {
+      const channel = MethodChannel('com.example.auto_reply_assistant/native');
+      final result = await channel.invokeMethod<Map>('getGemmaLocalStatus');
+      if (result != null && mounted) {
+        setState(() {
+          _modelAvailable = result['available'] == true;
+          _checking = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _downloadModel() async {
+    setState(() {
+      _downloading = true;
+      _downloadProgress = 0;
+    });
+
+    try {
+      const channel = MethodChannel('com.example.auto_reply_assistant/native');
+
+      // Listen for progress updates
+      channel.setMethodCallHandler((call) async {
+        if (call.method == 'onDownloadProgress') {
+          final progress = call.arguments as int;
+          if (mounted) setState(() => _downloadProgress = progress);
+        }
+      });
+
+      await channel.invokeMethod('downloadGemmaLocalModel');
+      await _checkStatus();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download failed: $e')),
+        );
+      }
+    }
+
+    if (mounted) setState(() => _downloading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Column(
+        children: [
+          ListTile(
+            leading: Icon(
+              _checking ? Icons.hourglass_empty :
+              _modelAvailable ? Icons.check_circle : Icons.download,
+              color: _checking ? Colors.grey :
+                     _modelAvailable ? Colors.green : Colors.orange,
+            ),
+            title: Text(
+              _checking ? 'Checking model...' :
+              _modelAvailable ? 'Gemma 3 Model Ready' : 'Gemma 3 Model Not Installed',
+            ),
+            subtitle: Text(
+              _downloading
+                  ? 'Downloading... $_downloadProgress%'
+                  : _modelAvailable
+                      ? '~165MB GGUF — runs fully offline on device'
+                      : 'Tap download to get the model (~165MB)',
+            ),
+          ),
+          if (_downloading)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(
+                    value: _downloadProgress / 100.0,
+                    backgroundColor: Colors.grey[300],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Downloading model... $_downloadProgress% — Do not close the app',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          if (!_downloading && !_modelAvailable)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Runs Gemma 3 270M directly on your phone. No server, no API key, no internet needed after download.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _downloadModel,
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('Download Model (~165MB)'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (!_downloading && _modelAvailable)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Fully offline — no internet or server required.',
+                      style: TextStyle(fontSize: 12, color: Colors.green[700]),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Delete Model?'),
+                          content: const Text('This will free ~165MB. You can re-download later.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        try {
+                          const channel = MethodChannel('com.example.auto_reply_assistant/native');
+                          await channel.invokeMethod('deleteGemmaLocalModel');
+                          await _checkStatus();
+                        } catch (_) {}
+                      }
+                    },
+                    child: const Text('Delete', style: TextStyle(color: Colors.red, fontSize: 12)),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );

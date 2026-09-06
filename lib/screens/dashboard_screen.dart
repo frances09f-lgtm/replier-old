@@ -10,6 +10,7 @@ import '../providers/reply_countdown_provider.dart';
 import 'rules_screen.dart';
 import 'logs_screen.dart';
 import 'settings_screen.dart';
+import 'chat_screen.dart';
 
 /// Dashboard screen with master switch and quick-action navigation
 class DashboardScreen extends ConsumerWidget {
@@ -23,6 +24,15 @@ class DashboardScreen extends ConsumerWidget {
     final replyCountdown = ref.watch(replyCountdownProvider);
 
     return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ChatScreen()),
+          );
+        },
+        child: const Icon(Icons.chat_bubble),
+      ),
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [

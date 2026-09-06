@@ -8,6 +8,8 @@ import android.provider.Settings
 import androidx.annotation.NonNull
 import com.example.auto_reply_assistant.service.AppNotificationListenerService
 import com.example.auto_reply_assistant.service.AutoReplyForegroundService
+import com.example.auto_reply_assistant.service.ConversationHistory
+import com.example.auto_reply_assistant.service.GemmaLocalService
 import com.example.auto_reply_assistant.service.RuleEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -84,6 +86,68 @@ class MainActivity : FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENTS", "settingsJson is null", null)
                     }
+                }
+
+                // Flutter sends chatbot context — used by AI auto-reply
+                "setChatbotContext" -> {
+                    val context = call.argument<String>("context") ?: ""
+                    AppNotificationListenerService.setChatbotContext(context)
+                    result.success(null)
+                }
+
+                // Chat with on-device Gemma 3 270M model
+                "chatWithGemmaLocal" -> {
+                    val message = call.argument<String>("message") ?: ""
+                    val systemPrompt = call.argument<String>("systemPrompt") ?: ""
+                    val historyRaw = call.argument<List<Map<String, String>>>("history") ?: emptyList()
+
+                    val history = historyRaw.mapNotNull { m ->
+                        val role = m["role"] ?: return@mapNotNull null
+                        val content = m["content"] ?: return@mapNotNull null
+                        ConversationHistory.ChatMessage(role, content)
+                    }
+
+                    GemmaLocalService(applicationContext).getAiReply(
+                        senderName = "User",
+                        incomingMessage = message,
+                        systemPrompt = systemPrompt,
+                        conversationHistory = history
+                    ) { reply, usage ->
+                        if (reply != null) {
+                            result.success(reply)
+                        } else {
+                            result.error("INFERENCE_FAILED", usage?.error ?: "Gemma Local returned empty", null)
+                        }
+                    }
+                }
+
+                "getGemmaLocalStatus" -> {
+                    val service = GemmaLocalService(applicationContext)
+                    val available = service.isModelAvailable()
+                    result.success(mapOf(
+                        "available" to available,
+                        "configured" to true
+                    ))
+                }
+
+                "downloadGemmaLocalModel" -> {
+                    val service = GemmaLocalService(applicationContext)
+                    service.downloadModel(
+                        onProgress = { progress ->
+                            runOnUiThread {
+                                nativeMethodChannel.invokeMethod("onDownloadProgress", progress)
+                            }
+                        },
+                        onComplete = { success, error ->
+                            result.success(mapOf("success" to success, "error" to error))
+                        }
+                    )
+                }
+
+                "deleteGemmaLocalModel" -> {
+                    val modelFile = GemmaLocalService(applicationContext).getModelFile()
+                    if (modelFile.exists()) modelFile.delete()
+                    result.success(null)
                 }
 
                 else -> result.notImplemented()

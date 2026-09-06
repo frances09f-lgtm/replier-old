@@ -24,9 +24,10 @@ class ReplyCountdownData {
       totalMs > 0 ? (1 - remainingMs / totalMs).clamp(0.0, 1.0) : 0.0;
 
   String get remainingFormatted {
-    final seconds = (remainingMs / 1000).ceil();
-    if (seconds <= 0) return 'Sending...';
-    return '${seconds}s';
+    final seconds = remainingMs ~/ 1000;
+    if (seconds > 0) return '${seconds}s';
+    if (remainingMs == 0 && !isActive) return '';
+    return '0s';
   }
 
   ReplyCountdownData copyWith({

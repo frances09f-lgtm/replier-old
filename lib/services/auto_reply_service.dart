@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
 import '../models/notification_data.dart';
 import '../providers/log_provider.dart';
+import '../providers/settings_provider.dart';
 import '../repositories/log_repository.dart';
 import '../repositories/rule_repository.dart';
 
@@ -102,7 +103,12 @@ class AutoReplyService {
       await _logRepository.incrementNotificationsReceived();
 
       // For rule-based replies, create the log here
-      final rule = _ruleRepository.findMatchingRule(notification.message);
+      final settings = _providerContainer?.read(appSettingsProvider);
+      final rule = _ruleRepository.findMatchingRule(
+        notification.message,
+        sender: notification.sender,
+        settings: settings,
+      );
       if (rule == null) return;
 
       final log = _logRepository.createLog(

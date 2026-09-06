@@ -1,6 +1,7 @@
 import 'package:injectable/injectable.dart';
 import 'package:uuid/uuid.dart';
 import '../core/hive_config.dart';
+import '../models/app_settings.dart';
 import '../models/rule.dart';
 
 /// Repository for managing rules
@@ -95,10 +96,23 @@ class RuleRepository {
   }
 
   /// Find matching rule for a message
-  Rule? findMatchingRule(String message) {
+  Rule? findMatchingRule(String message, {String? sender, AppSettings? settings}) {
+    // Blacklist check
+    if (sender != null && settings != null) {
+      if (settings.contactBlacklist.any((c) => c.toLowerCase() == sender.toLowerCase())) {
+        return null;
+      }
+      // Whitelist check
+      if (settings.contactWhitelistEnabled && settings.contactWhitelist.isNotEmpty) {
+        if (!settings.contactWhitelist.any((c) => c.toLowerCase() == sender.toLowerCase())) {
+          return null;
+        }
+      }
+    }
+
     final enabledRules = getEnabledRules();
     for (final rule in enabledRules) {
-      if (rule.matches(message)) {
+      if (rule.matches(message, sender: sender)) {
         return rule;
       }
     }

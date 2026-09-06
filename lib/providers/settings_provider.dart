@@ -168,6 +168,76 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
+  Future<void> updateGemmaLocalConfig(String serverUrl, String model) async {
+    await _repository.updateGemmaLocalConfig(serverUrl, model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> toggleContactWhitelist() async {
+    await _repository.toggleContactWhitelist();
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateContactWhitelist(List<String> contacts) async {
+    await _repository.updateContactWhitelist(contacts);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> addToWhitelist(String contact) async {
+    await _repository.addToWhitelist(contact);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> removeFromWhitelist(String contact) async {
+    await _repository.removeFromWhitelist(contact);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateContactBlacklist(List<String> contacts) async {
+    await _repository.updateContactBlacklist(contacts);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> addToBlacklist(String contact) async {
+    await _repository.addToBlacklist(contact);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> removeFromBlacklist(String contact) async {
+    await _repository.removeFromBlacklist(contact);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> setBusyMode(String replyText, int untilTimestamp) async {
+    await _repository.updateBusyMode(replyText, untilTimestamp);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> clearBusyMode() async {
+    await _repository.clearBusyMode();
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
   Future<void> updateSchedule({
     required bool enabled,
     required int startHour,
