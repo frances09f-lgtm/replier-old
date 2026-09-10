@@ -9,7 +9,7 @@ import androidx.annotation.NonNull
 import com.example.auto_reply_assistant.service.AppNotificationListenerService
 import com.example.auto_reply_assistant.service.AutoReplyForegroundService
 import com.example.auto_reply_assistant.service.ConversationHistory
-import com.example.auto_reply_assistant.service.GemmaLocalService
+import com.example.auto_reply_assistant.service.DeepSeekLocalService
 import com.example.auto_reply_assistant.service.RuleEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -95,8 +95,9 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
-                // Chat with on-device Gemma 3 270M model
-                "chatWithGemmaLocal" -> {
+                // Chat with on-device local model
+                "chatWithDeepSeek" -> {
+                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
                     val message = call.argument<String>("message") ?: ""
                     val systemPrompt = call.argument<String>("systemPrompt") ?: ""
                     val historyRaw = call.argument<List<Map<String, String>>>("history") ?: emptyList()
@@ -107,7 +108,8 @@ class MainActivity : FlutterActivity() {
                         ConversationHistory.ChatMessage(role, content)
                     }
 
-                    GemmaLocalService(applicationContext).getAiReply(
+                    DeepSeekLocalService.getInstance(applicationContext).getAiReply(
+                        modelId = modelId,
                         senderName = "User",
                         incomingMessage = message,
                         systemPrompt = systemPrompt,
@@ -116,37 +118,45 @@ class MainActivity : FlutterActivity() {
                         if (reply != null) {
                             result.success(reply)
                         } else {
-                            result.error("INFERENCE_FAILED", usage?.error ?: "Gemma Local returned empty", null)
+                            result.error("INFERENCE_FAILED", usage?.error ?: "Local model returned empty", null)
                         }
                     }
                 }
 
-                "getGemmaLocalStatus" -> {
-                    val service = GemmaLocalService(applicationContext)
-                    val available = service.isModelAvailable()
+                "getDeepSeekStatus" -> {
+                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
+                    val service = DeepSeekLocalService.getInstance(applicationContext)
+                    val available = service.isModelAvailable(modelId)
                     result.success(mapOf(
                         "available" to available,
-                        "configured" to true
+                        "configured" to true,
+                        "modelId" to modelId
                     ))
                 }
 
-                "downloadGemmaLocalModel" -> {
-                    val service = GemmaLocalService(applicationContext)
+                "downloadDeepSeekModel" -> {
+                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
+                    val service = DeepSeekLocalService.getInstance(applicationContext)
                     service.downloadModel(
+                        modelId = modelId,
                         onProgress = { progress ->
                             runOnUiThread {
-                                nativeMethodChannel.invokeMethod("onDownloadProgress", progress)
+                                nativeMethodChannel.invokeMethod("onDownloadProgress", mapOf(
+                                    "modelId" to modelId,
+                                    "progress" to progress,
+                                ))
                             }
                         },
                         onComplete = { success, error ->
-                            result.success(mapOf("success" to success, "error" to error))
+                            result.success(mapOf("success" to success, "error" to error, "modelId" to modelId))
                         }
                     )
                 }
 
-                "deleteGemmaLocalModel" -> {
-                    val modelFile = GemmaLocalService(applicationContext).getModelFile()
-                    if (modelFile.exists()) modelFile.delete()
+                "deleteDeepSeekModel" -> {
+                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
+                    val service = DeepSeekLocalService.getInstance(applicationContext)
+                    service.deleteModel(modelId)
                     result.success(null)
                 }
 

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:hive/hive.dart';
 
 part 'app_settings.g.dart';
@@ -37,23 +36,11 @@ class AppSettings extends HiveObject {
   @HiveField(10)
   bool aiReplyEnabled;
 
-  @HiveField(11)
-  String groqApiKey;
-
   @HiveField(12)
   String aiSystemPrompt;
 
   @HiveField(13)
   String aiModelType;
-
-  @HiveField(16)
-  String cerebrasApiKey;
-
-  @HiveField(17)
-  String geminiApiKey;
-
-  @HiveField(23)
-  String geminiApiKeysJson;
 
   @HiveField(18)
   bool scheduleEnabled;
@@ -97,6 +84,9 @@ class AppSettings extends HiveObject {
   @HiveField(32)
   String gemmaLocalModel;
 
+  @HiveField(33)
+  String selectedLocalModel;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
@@ -107,12 +97,8 @@ class AppSettings extends HiveObject {
     this.ignoreGroupChats = true,
     this.darkMode = false,
     this.aiReplyEnabled = false,
-    this.groqApiKey = '',
     this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
-    this.aiModelType = 'smart_reply',
-    this.cerebrasApiKey = '',
-    this.geminiApiKey = '',
-    this.geminiApiKeysJson = '[]',
+    this.aiModelType = 'deepseek_local',
     this.scheduleEnabled = false,
     this.scheduleStartHour = 8,
     this.scheduleStartMinute = 0,
@@ -126,25 +112,10 @@ class AppSettings extends HiveObject {
       this.busyReplyText = '',
       this.busyUntilTimestamp = 0,
       this.gemmaLocalServerUrl = '',
-      this.gemmaLocalModel = 'gemma3:270m',
+      this.gemmaLocalModel = 'deepseek_1_5b',
+      this.selectedLocalModel = 'deepseek_1_5b',
       required this.lastUpdated,
   });
-
-  /// Returns the list of Gemini API keys.
-  /// Falls back to [geminiApiKey] if the list is empty (backward compat).
-  List<String> get geminiApiKeys {
-    try {
-      final list = (jsonDecode(geminiApiKeysJson) as List).cast<String>();
-      if (list.isNotEmpty) return list;
-    } catch (_) {}
-    if (geminiApiKey.isNotEmpty) return [geminiApiKey];
-    return [];
-  }
-
-  /// Set the list of Gemini API keys (persists as JSON string).
-  set geminiApiKeys(List<String> keys) {
-    geminiApiKeysJson = jsonEncode(keys);
-  }
 
   /// Convert to JSON
   Map<String, dynamic> toJson() {
@@ -159,10 +130,6 @@ class AppSettings extends HiveObject {
       'darkMode': darkMode,
       'aiReplyEnabled': aiReplyEnabled,
       'aiModelType': aiModelType,
-      'groqApiKey': groqApiKey,
-      'cerebrasApiKey': cerebrasApiKey,
-      'geminiApiKey': geminiApiKey,
-      'geminiApiKeysJson': geminiApiKeysJson,
       'aiSystemPrompt': aiSystemPrompt,
       'scheduleEnabled': scheduleEnabled,
       'scheduleStartHour': scheduleStartHour,
@@ -178,6 +145,7 @@ class AppSettings extends HiveObject {
       'busyUntilTimestamp': busyUntilTimestamp,
       'gemmaLocalServerUrl': gemmaLocalServerUrl,
       'gemmaLocalModel': gemmaLocalModel,
+      'selectedLocalModel': selectedLocalModel,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -194,11 +162,7 @@ class AppSettings extends HiveObject {
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
       aiReplyEnabled: json['aiReplyEnabled'] ?? false,
-      aiModelType: (json['aiModelType'] as String?) ?? 'groq',
-      groqApiKey: json['groqApiKey'] ?? '',
-      cerebrasApiKey: (json['cerebrasApiKey'] as String?) ?? '',
-      geminiApiKey: (json['geminiApiKey'] as String?) ?? '',
-      geminiApiKeysJson: (json['geminiApiKeysJson'] as String?) ?? '[]',
+      aiModelType: (json['aiModelType'] as String?) ?? 'deepseek_local',
       aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
       scheduleEnabled: json['scheduleEnabled'] ?? false,
       scheduleStartHour: json['scheduleStartHour'] ?? 8,
@@ -213,7 +177,8 @@ class AppSettings extends HiveObject {
       busyReplyText: json['busyReplyText'] ?? '',
       busyUntilTimestamp: json['busyUntilTimestamp'] ?? 0,
       gemmaLocalServerUrl: (json['gemmaLocalServerUrl'] as String?) ?? '',
-      gemmaLocalModel: (json['gemmaLocalModel'] as String?) ?? 'gemma3:270m',
+      gemmaLocalModel: (json['gemmaLocalModel'] as String?) ?? 'deepseek_1_5b',
+      selectedLocalModel: (json['selectedLocalModel'] as String?) ?? 'deepseek_1_5b',
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -230,10 +195,6 @@ class AppSettings extends HiveObject {
     bool? darkMode,
     bool? aiReplyEnabled,
     String? aiModelType,
-    String? groqApiKey,
-    String? cerebrasApiKey,
-    String? geminiApiKey,
-    String? geminiApiKeysJson,
     String? aiSystemPrompt,
     bool? scheduleEnabled,
     int? scheduleStartHour,
@@ -249,6 +210,7 @@ class AppSettings extends HiveObject {
     int? busyUntilTimestamp,
     String? gemmaLocalServerUrl,
     String? gemmaLocalModel,
+    String? selectedLocalModel,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -262,10 +224,6 @@ class AppSettings extends HiveObject {
       darkMode: darkMode ?? this.darkMode,
       aiReplyEnabled: aiReplyEnabled ?? this.aiReplyEnabled,
       aiModelType: aiModelType ?? this.aiModelType,
-      groqApiKey: groqApiKey ?? this.groqApiKey,
-      cerebrasApiKey: cerebrasApiKey ?? this.cerebrasApiKey,
-      geminiApiKey: geminiApiKey ?? this.geminiApiKey,
-      geminiApiKeysJson: geminiApiKeysJson ?? this.geminiApiKeysJson,
       aiSystemPrompt: aiSystemPrompt ?? this.aiSystemPrompt,
       scheduleEnabled: scheduleEnabled ?? this.scheduleEnabled,
       scheduleStartHour: scheduleStartHour ?? this.scheduleStartHour,
@@ -281,6 +239,7 @@ class AppSettings extends HiveObject {
       busyUntilTimestamp: busyUntilTimestamp ?? this.busyUntilTimestamp,
       gemmaLocalServerUrl: gemmaLocalServerUrl ?? this.gemmaLocalServerUrl,
       gemmaLocalModel: gemmaLocalModel ?? this.gemmaLocalModel,
+      selectedLocalModel: selectedLocalModel ?? this.selectedLocalModel,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

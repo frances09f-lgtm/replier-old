@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -213,15 +211,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            settings.aiModelType == 'smart_reply'
-                ? 'Uses on-device ML Kit Smart Reply (no API key, no internet needed)'
-                : settings.aiModelType == 'gemma_local'
-                    ? 'Uses on-device Gemma 3 270M LLM (fully offline, download model on first use)'
-                    : settings.aiModelType == 'gemini'
-                        ? 'Uses Google Gemini (1,500 req/day free) to generate replies when no rule matches'
-                        : settings.aiModelType == 'cerebras'
-                            ? 'Uses Cerebras (ultra-fast inference) to generate replies when no rule matches'
-                            : 'Uses Groq (free) to generate replies when no rule matches',
+            'Uses on-device LLM (fully offline, download model on first use)',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Colors.grey[600],
             ),
@@ -238,7 +228,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
             if (settings.aiReplyEnabled) ...[
-              // Model type selector
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Column(
@@ -246,110 +235,24 @@ class SettingsScreen extends ConsumerWidget {
                   children: [
                     const Text('AI Model', style: TextStyle(fontWeight: FontWeight.w500)),
                     const SizedBox(height: 4),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Radio<String>(
-                        value: 'smart_reply',
-                        groupValue: settings.aiModelType,
-                        onChanged: (v) {
-                          ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
-                        },
-                      ),
-                      title: const Text('Smart Reply (On-Device)'),
-                      subtitle: const Text('No API key, works offline, on-device AI'),
-                      onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('smart_reply'),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Radio<String>(
-                        value: 'gemma_local',
-                        groupValue: settings.aiModelType,
-                        onChanged: (v) {
-                          ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
-                        },
-                      ),
-                      title: const Text('Gemma 3 270M (On-Device)'),
-                      subtitle: const Text('No API key, fully offline, runs on device'),
-                      onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('gemma_local'),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Radio<String>(
-                        value: 'groq',
-                        groupValue: settings.aiModelType,
-                        onChanged: (v) {
-                          ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
-                        },
-                      ),
-                      title: const Text('Groq API (Cloud)'),
-                      subtitle: const Text('Requires API key, rate limits apply'),
-                      onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('groq'),
-                    ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Radio<String>(
-                      value: 'gemini',
-                      groupValue: settings.aiModelType,
-                      onChanged: (v) {
-                        ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
+                    _ModelRadioTile(
+                      value: 'deepseek_1_5b',
+                      groupValue: settings.selectedLocalModel,
+                      title: 'DeepSeek-R1 1.5B',
+                      subtitle: '~1GB, strong reasoning, distilled from R1',
+                      onTap: () {
+                        ref.read(appSettingsProvider.notifier).updateAiModelType('deepseek_local');
+                        ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('deepseek_1_5b');
                       },
+                      modelId: 'deepseek_1_5b',
+                      selectedModelId: settings.selectedLocalModel,
                     ),
-                    title: const Text('Google Gemini'),
-                    subtitle: const Text('1,500 req/day free, 1M context'),
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('gemini'),
-                  ),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Radio<String>(
-                      value: 'cerebras',
-                      groupValue: settings.aiModelType,
-                      onChanged: (v) {
-                        ref.read(appSettingsProvider.notifier).updateAiModelType(v!);
-                      },
-                    ),
-                    title: const Text('Cerebras API (Cloud)'),
-                    subtitle: const Text('Ultra-fast inference, free tier'),
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('cerebras'),
-                  ),
-                ],
-              ),
-            ),
-
-            if (settings.aiModelType == 'groq') ...[
-              ListTile(
-                title: const Text('Groq API Key'),
-                subtitle: Text(
-                  settings.groqApiKey.isEmpty
-                      ? 'Not set (get free key at console.groq.com)'
-                      : '${settings.groqApiKey.substring(0, 8)}...',
+                  ],
                 ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showApiKeyDialog(context, ref, settings.groqApiKey),
               ),
             ],
 
-            if (settings.aiModelType == 'gemini') ...[
-              _buildGeminiKeysSection(context, ref, settings),
-            ],
-
-            if (settings.aiModelType == 'cerebras') ...[
-              ListTile(
-                title: const Text('Cerebras API Key'),
-                subtitle: Text(
-                  settings.cerebrasApiKey.isEmpty
-                      ? 'Not set (get free key at cloud.cerebras.ai)'
-                      : '${settings.cerebrasApiKey.substring(0, 8)}...',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showCerebrasApiKeyDialog(context, ref, settings.cerebrasApiKey),
-              ),
-            ],
-
-            if (settings.aiModelType == 'gemma_local') ...[
-              const _GemmaLocalModelTile(),
-            ],
-
-            if (settings.aiModelType != 'smart_reply')
+            if (settings.aiModelType == 'deepseek_local')
               ListTile(
                 title: const Text('System Prompt'),
                 subtitle: Text(
@@ -360,7 +263,6 @@ class SettingsScreen extends ConsumerWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showSystemPromptDialog(context, ref, settings.aiSystemPrompt),
             ),
-          ],
 
           const SizedBox(height: 24),
 
@@ -547,138 +449,6 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  void _showApiKeyDialog(BuildContext context, WidgetRef ref, String currentKey) {
-    final controller = TextEditingController(text: currentKey);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Groq API Key'),
-        content: TextField(
-          controller: controller,
-          decoration: const InputDecoration(
-            hintText: 'gsk_...',
-            labelText: 'API Key',
-          ),
-          obscureText: true,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final key = controller.text.trim();
-              if (key.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Enter an API key first')),
-                );
-                return;
-              }
-              Navigator.pop(context);
-              await _testApiKey(context, key);
-            },
-            child: const Text('Test'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref.read(appSettingsProvider.notifier).updateGroqApiKey(controller.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _testApiKey(BuildContext context, String apiKey) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      final client = HttpClient();
-      final request = await client.postUrl(
-        Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
-      );
-      request.headers.set('Authorization', 'Bearer $apiKey');
-      request.headers.set('Content-Type', 'application/json');
-      request.write(jsonEncode({
-        'model': 'llama-3.3-70b-versatile',
-        'messages': [
-          {'role': 'user', 'content': 'Say "API test successful" in exactly 3 words.'}
-        ],
-        'max_tokens': 20,
-      }));
-
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      client.close();
-
-      if (context.mounted) Navigator.pop(context); // dismiss loading
-
-      if (response.statusCode == 200) {
-        final json = jsonDecode(body);
-        final reply = json['choices'][0]['message']['content'].trim();
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
-              title: const Text('API Working!'),
-              content: Text('AI replied: "$reply"'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      } else {
-        final error = jsonDecode(body);
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              icon: const Icon(Icons.error, color: Colors.red, size: 48),
-              title: const Text('API Error'),
-              content: Text('Status ${response.statusCode}: ${error['error']['message'] ?? 'Unknown error'}'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) Navigator.pop(context); // dismiss loading
-      if (context.mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            icon: const Icon(Icons.error, color: Colors.red, size: 48),
-            title: const Text('Connection Failed'),
-            content: Text('Could not reach Groq API:\n$e'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    }
   }
 
   Widget _buildContactWhitelistSection(BuildContext context, WidgetRef ref, AppSettings settings) {
@@ -907,295 +677,6 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildGeminiKeysSection(BuildContext context, WidgetRef ref, AppSettings settings) {
-    final keys = settings.geminiApiKeys;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ListTile(
-          title: const Text('Gemini API Keys'),
-          subtitle: Text(
-            keys.isEmpty
-                ? 'No keys set (get free key at aistudio.google.com)'
-                : '${keys.length} key${keys.length == 1 ? '' : 's'} configured',
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => _showGeminiKeysDialog(context, ref, settings),
-        ),
-        if (keys.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: keys.map((key) {
-                final display = key.length > 12 ? '${key.substring(0, 8)}...${key.substring(key.length - 4)}' : key;
-                return Chip(
-                  label: Text(display, style: const TextStyle(fontSize: 12)),
-                  deleteIcon: const Icon(Icons.close, size: 16),
-                  onDeleted: () {
-                    ref.read(appSettingsProvider.notifier).removeGeminiApiKey(key);
-                  },
-                );
-              }).toList(),
-            ),
-          ),
-      ],
-    );
-  }
-
-  void _showGeminiKeysDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
-    final keys = List<String>.from(settings.geminiApiKeys);
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Gemini API Keys'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (keys.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'Add multiple keys to increase your rate limit.\nEach key gives 15 requests/min free.',
-                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                    ),
-                  ),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: keys.length,
-                    itemBuilder: (context, index) {
-                      final key = keys[index];
-                      final display = key.length > 20
-                          ? '${key.substring(0, 12)}...${key.substring(key.length - 6)}'
-                          : key;
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.key, size: 20),
-                        title: Text(display, style: const TextStyle(fontSize: 13)),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 20),
-                          onPressed: () {
-                            keys.removeAt(index);
-                            setDialogState(() {});
-                          },
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const Divider(),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: controller,
-                        decoration: const InputDecoration(
-                          hintText: 'AIza...',
-                          labelText: 'New API Key',
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.add_circle, color: Colors.green),
-                      onPressed: () {
-                        final key = controller.text.trim();
-                        if (key.isNotEmpty && !keys.contains(key)) {
-                          keys.add(key);
-                          controller.clear();
-                          setDialogState(() {});
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton.icon(
-              icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('Get free keys'),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Go to https://aistudio.google.com/apikey')),
-                );
-              },
-            ),
-            TextButton(
-              onPressed: () {
-                ref.read(appSettingsProvider.notifier).updateGeminiApiKeys(keys);
-                Navigator.pop(context);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showCerebrasApiKeyDialog(BuildContext context, WidgetRef ref, String currentKey) {
-    final controller = TextEditingController(text: currentKey);
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cerebras API Key'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                hintText: 'csk-...',
-                labelText: 'API Key',
-              ),
-              obscureText: true,
-            ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              icon: const Icon(Icons.open_in_new, size: 16),
-              label: const Text('Get free key at cloud.cerebras.ai'),
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Go to https://cloud.cerebras.ai to create a free key')),
-                );
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final key = controller.text.trim();
-              if (key.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Enter an API key first')),
-                );
-                return;
-              }
-              Navigator.pop(context);
-              await _testCerebrasApiKey(context, key);
-            },
-            child: const Text('Test'),
-          ),
-          TextButton(
-            onPressed: () {
-              ref.read(appSettingsProvider.notifier).updateCerebrasApiKey(controller.text.trim());
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _testCerebrasApiKey(BuildContext context, String apiKey) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      final client = HttpClient();
-      final request = await client.postUrl(
-        Uri.parse('https://api.cerebras.ai/v1/chat/completions'),
-      );
-      request.headers.set('Authorization', 'Bearer $apiKey');
-      request.headers.set('Content-Type', 'application/json');
-      request.write(jsonEncode({
-        'model': 'gpt-oss-120b',
-        'messages': [
-          {'role': 'user', 'content': 'Say "API test successful" in exactly 3 words.'}
-        ],
-        'max_tokens': 20,
-      }));
-
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      client.close();
-
-      if (context.mounted) Navigator.pop(context); // dismiss loading
-
-      if (response.statusCode == 200) {
-        final json = jsonDecode(body);
-        final reply = json['choices'][0]['message']['content'].trim();
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
-              title: const Text('API Working!'),
-              content: Text('AI replied: "$reply"'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      } else {
-        final error = jsonDecode(body);
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (_) => AlertDialog(
-              icon: const Icon(Icons.error, color: Colors.red, size: 48),
-              title: const Text('API Error'),
-              content: Text('Status ${response.statusCode}: ${error['error']['message'] ?? 'Unknown error'}'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (context.mounted) Navigator.pop(context); // dismiss loading
-      if (context.mounted) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            icon: const Icon(Icons.error, color: Colors.red, size: 48),
-            title: const Text('Connection Failed'),
-            content: Text('Could not reach Cerebras API:\n$e'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-    }
-  }
-
   void _showSystemPromptDialog(BuildContext context, WidgetRef ref, String currentPrompt) {
     final controller = TextEditingController(text: currentPrompt);
     showDialog(
@@ -1227,168 +708,165 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
-class _GemmaLocalModelTile extends StatefulWidget {
-  const _GemmaLocalModelTile();
+class _ModelRadioTile extends StatefulWidget {
+  final String value;
+  final String groupValue;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final String? modelId;
+  final String? selectedModelId;
+
+  const _ModelRadioTile({
+    required this.value,
+    required this.groupValue,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.modelId,
+    this.selectedModelId,
+  });
 
   @override
-  State<_GemmaLocalModelTile> createState() => _GemmaLocalModelTileState();
+  State<_ModelRadioTile> createState() => _ModelRadioTileState();
 }
 
-class _GemmaLocalModelTileState extends State<_GemmaLocalModelTile> {
-  bool _modelAvailable = false;
+class _ModelRadioTileState extends State<_ModelRadioTile> {
+  bool? _available;
   bool _downloading = false;
-  int _downloadProgress = 0;
-  bool _checking = true;
+  int _progress = 0;
+  bool _checking = false;
 
   @override
   void initState() {
     super.initState();
-    _checkStatus();
+    if (widget.modelId != null) _checkStatus();
   }
 
   Future<void> _checkStatus() async {
+    setState(() => _checking = true);
     try {
       const channel = MethodChannel('com.example.auto_reply_assistant/native');
-      final result = await channel.invokeMethod<Map>('getGemmaLocalStatus');
+      final result = await channel.invokeMethod<Map>('getDeepSeekStatus', {'modelId': widget.modelId});
       if (result != null && mounted) {
-        setState(() {
-          _modelAvailable = result['available'] == true;
-          _checking = false;
-        });
+        setState(() => _available = result['available'] == true);
       }
-    } catch (_) {
-      if (mounted) setState(() => _checking = false);
-    }
+    } catch (_) {}
+    if (mounted) setState(() => _checking = false);
   }
 
-  Future<void> _downloadModel() async {
-    setState(() {
-      _downloading = true;
-      _downloadProgress = 0;
-    });
-
+  Future<void> _download() async {
+    setState(() { _downloading = true; _progress = 0; });
     try {
       const channel = MethodChannel('com.example.auto_reply_assistant/native');
-
-      // Listen for progress updates
       channel.setMethodCallHandler((call) async {
         if (call.method == 'onDownloadProgress') {
-          final progress = call.arguments as int;
-          if (mounted) setState(() => _downloadProgress = progress);
+          final args = call.arguments as Map;
+          if (args['modelId'] == widget.modelId && mounted) {
+            setState(() => _progress = args['progress'] as int? ?? 0);
+          }
         }
       });
-
-      await channel.invokeMethod('downloadGemmaLocalModel');
+      await channel.invokeMethod('downloadDeepSeekModel', {'modelId': widget.modelId});
       await _checkStatus();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Download failed: $e')));
     }
-
     if (mounted) setState(() => _downloading = false);
+  }
+
+  Future<void> _delete() async {
+    try {
+      const channel = MethodChannel('com.example.auto_reply_assistant/native');
+      await channel.invokeMethod('deleteDeepSeekModel', {'modelId': widget.modelId});
+      await _checkStatus();
+    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
+    final isLocalModel = widget.modelId != null;
+    final isAvailable = _available ?? false;
+    final isThisSelected = isLocalModel && widget.value == widget.groupValue && widget.modelId == widget.selectedModelId;
+
     return Card(
       child: Column(
         children: [
           ListTile(
-            leading: Icon(
-              _checking ? Icons.hourglass_empty :
-              _modelAvailable ? Icons.check_circle : Icons.download,
-              color: _checking ? Colors.grey :
-                     _modelAvailable ? Colors.green : Colors.orange,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            leading: Radio<String>(
+              value: widget.value,
+              groupValue: widget.groupValue,
+              onChanged: isLocalModel && !isAvailable ? null : (_) => widget.onTap(),
             ),
-            title: Text(
-              _checking ? 'Checking model...' :
-              _modelAvailable ? 'Gemma 3 Model Ready' : 'Gemma 3 Model Not Installed',
-            ),
-            subtitle: Text(
-              _downloading
-                  ? 'Downloading... $_downloadProgress%'
-                  : _modelAvailable
-                      ? '~165MB GGUF — runs fully offline on device'
-                      : 'Tap download to get the model (~165MB)',
-            ),
+            title: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.w500)),
+            subtitle: Text(_downloading
+                ? 'Downloading... $_progress%'
+                : isLocalModel && !isAvailable
+                    ? '${widget.subtitle} (tap download)'
+                    : widget.subtitle),
+            trailing: isLocalModel
+                ? (_checking
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : isAvailable
+                        ? Icon(Icons.check_circle, color: isThisSelected ? Colors.green : Colors.grey)
+                        : Icon(Icons.download, color: Colors.orange))
+                : Icon(Icons.phone_android, color: Colors.green[700]),
+            onTap: isLocalModel && !isAvailable ? null : () => widget.onTap(),
           ),
           if (_downloading)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  LinearProgressIndicator(
-                    value: _downloadProgress / 100.0,
-                    backgroundColor: Colors.grey[300],
-                  ),
+                  LinearProgressIndicator(value: _progress / 100.0, backgroundColor: Colors.grey[300]),
                   const SizedBox(height: 4),
-                  Text(
-                    'Downloading model... $_downloadProgress% — Do not close the app',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
+                  Text('Downloading... $_progress% — Do not close the app', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                 ],
               ),
             ),
-          if (!_downloading && !_modelAvailable)
+          if (!_downloading && isLocalModel && !isAvailable)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Runs Gemma 3 270M directly on your phone. No server, no API key, no internet needed after download.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _downloadModel,
-                      icon: const Icon(Icons.download, size: 18),
-                      label: const Text('Download Model (~165MB)'),
-                    ),
-                  ),
-                ],
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _download,
+                  icon: const Icon(Icons.download, size: 18),
+                  label: Text('Download ${widget.title}'),
+                ),
               ),
             ),
-          if (!_downloading && _modelAvailable)
+          if (!_downloading && isLocalModel && isAvailable)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'Fully offline — no internet or server required.',
-                      style: TextStyle(fontSize: 12, color: Colors.green[700]),
+                      isThisSelected ? 'Currently active' : 'Downloaded',
+                      style: TextStyle(fontSize: 12, color: isThisSelected ? Colors.green[700] : Colors.grey[600]),
                     ),
                   ),
-                  TextButton(
-                    onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Delete Model?'),
-                          content: const Text('This will free ~165MB. You can re-download later.'),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
-                          ],
-                        ),
-                      );
-                      if (confirm == true) {
-                        try {
-                          const channel = MethodChannel('com.example.auto_reply_assistant/native');
-                          await channel.invokeMethod('deleteGemmaLocalModel');
-                          await _checkStatus();
-                        } catch (_) {}
-                      }
-                    },
-                    child: const Text('Delete', style: TextStyle(color: Colors.red, fontSize: 12)),
-                  ),
+                  if (!isThisSelected)
+                    TextButton(
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: Text('Delete ${widget.title}?'),
+                            content: const Text('You can re-download later.'),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+                            ],
+                          ),
+                        );
+                        if (confirm == true) _delete();
+                      },
+                      child: const Text('Delete', style: TextStyle(color: Colors.red, fontSize: 12)),
+                    ),
                 ],
               ),
             ),

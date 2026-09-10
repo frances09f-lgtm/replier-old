@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/hive_config.dart';
@@ -45,49 +43,13 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
 
     try {
       final settings = _ref.read(appSettingsProvider);
-      final settingsModel = settings.aiModelType;
 
-      if (settingsModel == 'smart_reply') {
-        throw Exception('On-device Smart Reply is for auto-reply only. Switch to Groq/Gemini/Cerebras in Settings to use the chatbot.');
-      } else if (settingsModel == 'gemma_local') {
-        final reply = await _callGemmaLocal(text, settings);
-        final aiMessage = ChatMessage(
-          role: 'assistant', content: reply, model: 'gemma_local',
-        );
-        await box.put(aiMessage.id, aiMessage);
-        state = [...state, aiMessage];
-      } else if (settingsModel == 'gemini') {
-        final keys = settings.geminiApiKeys;
-        if (keys.isEmpty) {
-          throw Exception('Gemini API key not set. Configure it in Settings.');
-        }
-        final reply = await _callGemini(text, settings);
-        final aiMessage = ChatMessage(
-          role: 'assistant', content: reply, model: 'gemini',
-        );
-        await box.put(aiMessage.id, aiMessage);
-        state = [...state, aiMessage];
-      } else if (settingsModel == 'cerebras') {
-        if (settings.cerebrasApiKey.isEmpty) {
-          throw Exception('Cerebras API key not set. Configure it in Settings.');
-        }
-        final reply = await _callCerebras(text, settings);
-        final aiMessage = ChatMessage(
-          role: 'assistant', content: reply, model: 'cerebras',
-        );
-        await box.put(aiMessage.id, aiMessage);
-        state = [...state, aiMessage];
-      } else {
-        if (settings.groqApiKey.isEmpty) {
-          throw Exception('Groq API key not set. Configure it in Settings.');
-        }
-        final reply = await _callGroq(text, settings);
-        final aiMessage = ChatMessage(
-          role: 'assistant', content: reply, model: 'groq',
-        );
-        await box.put(aiMessage.id, aiMessage);
-        state = [...state, aiMessage];
-      }
+      final reply = await _callDeepSeek(text, settings);
+      final aiMessage = ChatMessage(
+        role: 'assistant', content: reply, model: 'deepseek_local',
+      );
+      await box.put(aiMessage.id, aiMessage);
+      state = [...state, aiMessage];
 
       // Check for busy/meeting intent in user message and set busy mode
       _checkAndSetBusyMode(text);
@@ -248,161 +210,7 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     return sb.toString();
   }
 
-  Future<String> _callGroq(String text, AppSettings settings) async {
-    final client = HttpClient();
-    try {
-      final messages = _buildMessages(text);
-      final url = Uri.parse('https://api.groq.com/openai/v1/chat/completions');
-      final payload = {
-        'model': 'llama-3.3-70b-versatile',
-        'messages': [
-          {'role': 'system', 'content': _sanitize(settings.aiSystemPrompt)},
-          ...messages,
-        ],
-        'max_tokens': 500,
-        'temperature': 0.7,
-      };
-      final requestBody = jsonEncode(payload);
-      print('[Chat] Groq request: $url');
-      print('[Chat] Groq body: $requestBody');
-
-      final request = await client.postUrl(url);
-      request.headers.set('Authorization', 'Bearer ${settings.groqApiKey}');
-      request.headers.set('Content-Type', 'application/json');
-      final bytes = utf8.encode(requestBody);
-      request.contentLength = bytes.length;
-      request.add(bytes);
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-
-      print('[Chat] Groq response status: ${response.statusCode}');
-      print('[Chat] Groq response body: $body');
-
-      if (response.statusCode != 200) {
-        final err = jsonDecode(body);
-        throw Exception(err['error']?['message'] ?? body);
-      }
-
-      final json = jsonDecode(body);
-      final content = json['choices']?[0]?['message']?['content']?.toString().trim();
-      if (content == null || content.isEmpty) throw Exception('Groq returned empty response. Body: $body');
-      return content;
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<String> _callGemini(String text, AppSettings settings) async {
-    final history = state
-        .where((m) => m.role == 'user' || m.role == 'assistant')
-        .map((m) => {
-              'role': m.role == 'assistant' ? 'model' : 'user',
-              'parts': [{'text': _sanitize(m.content)}],
-            })
-        .toList();
-
-    final recent = history.length > 30
-        ? history.sublist(history.length - 30)
-        : history;
-
-    final contents = [
-      ...recent,
-      {'role': 'user', 'parts': [{'text': text}]},
-    ];
-
-    print('[Chat] Gemini contents: ${jsonEncode(contents)}');
-
-    var lastError = '';
-    for (final apiKey in settings.geminiApiKeys) {
-      final client = HttpClient();
-      try {
-        final url = Uri.parse('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey');
-        print('[Chat] Gemini request: $url');
-        final request = await client.postUrl(url);
-        request.headers.set('Content-Type', 'application/json');
-        final requestBody = {
-          'contents': contents,
-          'system_instruction': {
-            'parts': [{'text': _sanitize(settings.aiSystemPrompt)}]
-          },
-          'generationConfig': {
-            'maxOutputTokens': 500,
-            'temperature': 0.7,
-          },
-        };
-        final encoded = jsonEncode(requestBody);
-        print('[Chat] Gemini body: $encoded');
-        final geminiBytes = utf8.encode(encoded);
-        request.contentLength = geminiBytes.length;
-        request.add(geminiBytes);
-        final response = await request.close();
-        final responseBody = await response.transform(utf8.decoder).join();
-
-        print('[Chat] Gemini response status: ${response.statusCode}');
-        print('[Chat] Gemini response body: $responseBody');
-
-        if (response.statusCode == 200) {
-          final json = jsonDecode(responseBody);
-          final reply = json['candidates']?[0]?['content']?['parts']?[0]?['text']?.trim();
-          if (reply != null && reply.isNotEmpty) return reply;
-        }
-
-        lastError = responseBody;
-      } catch (e) {
-        print('[Chat] Gemini exception: $e');
-        lastError = e.toString();
-      } finally {
-        client.close();
-      }
-    }
-    throw Exception(lastError);
-  }
-
-  Future<String> _callCerebras(String text, AppSettings settings) async {
-    final client = HttpClient();
-    try {
-      final messages = _buildMessages(text);
-      final url = Uri.parse('https://api.cerebras.ai/v1/chat/completions');
-      final payload = {
-        'model': 'gpt-oss-120b',
-        'messages': [
-          {'role': 'system', 'content': _sanitize(settings.aiSystemPrompt)},
-          ...messages,
-        ],
-        'max_tokens': 500,
-        'temperature': 0.7,
-      };
-      final requestBody = jsonEncode(payload);
-      print('[Chat] Cerebras request: $url');
-      print('[Chat] Cerebras body: $requestBody');
-
-      final request = await client.postUrl(url);
-      request.headers.set('Authorization', 'Bearer ${settings.cerebrasApiKey}');
-      request.headers.set('Content-Type', 'application/json');
-      final cerebBytes = utf8.encode(requestBody);
-      request.contentLength = cerebBytes.length;
-      request.add(cerebBytes);
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-
-      print('[Chat] Cerebras response status: ${response.statusCode}');
-      print('[Chat] Cerebras response body: $body');
-
-      if (response.statusCode != 200) {
-        final err = jsonDecode(body);
-        throw Exception(err['error']?['message'] ?? body);
-      }
-
-      final json = jsonDecode(body);
-      final content = json['choices']?[0]?['message']?['content']?.toString().trim();
-      if (content == null || content.isEmpty) throw Exception('Cerebras returned empty response. Body: $body');
-      return content;
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<String> _callGemmaLocal(String text, AppSettings settings) async {
+  Future<String> _callDeepSeek(String text, AppSettings settings) async {
     const channel = MethodChannel('com.example.auto_reply_assistant/native');
     try {
       final history = state
@@ -417,19 +225,20 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
           ? history.sublist(history.length - 10)
           : history;
 
-      final result = await channel.invokeMethod<String>('chatWithGemmaLocal', {
+      final result = await channel.invokeMethod<String>('chatWithDeepSeek', {
+        'modelId': settings.selectedLocalModel,
         'message': text,
         'systemPrompt': _sanitize(settings.aiSystemPrompt),
         'history': recent,
       });
 
       if (result == null || result.isEmpty) {
-        throw Exception('Gemma Local returned empty response');
+        throw Exception('DeepSeek returned empty response');
       }
       return result;
     } catch (e) {
       if (e is MissingPluginException) {
-        throw Exception('Gemma Local not available. Download the model in Settings first.');
+        throw Exception('DeepSeek not available. Download the model in Settings first.');
       }
       rethrow;
     }

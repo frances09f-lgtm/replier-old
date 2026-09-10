@@ -27,11 +27,20 @@ class AutoReplyService {
   /// Callback for AI usage updates
   static Function(Map<String, dynamic>)? onAiUsageUpdate;
 
-  /// Callback for reply scheduled (countdown)
-  static Function(Map<String, dynamic>)? onReplyScheduled;
+  /// Callback for pipeline status events (got_message, analysing, reply_ready)
+  static Function(Map<String, dynamic>)? onPipelineStatus;
 
-  /// Callback for reply completed (sent or failed)
-  static VoidCallback? onReplyCompleted;
+  /// Callback for reply scheduled (countdown) — multiple listeners supported
+  static final List<Function(Map<String, dynamic>)> _onReplyScheduledListeners = [];
+  static set onReplyScheduled(Function(Map<String, dynamic>)? fn) {
+    if (fn != null) _onReplyScheduledListeners.add(fn);
+  }
+
+  /// Callback for reply completed (sent or failed) — multiple listeners supported
+  static final List<VoidCallback> _onReplyCompletedListeners = [];
+  static set onReplyCompleted(VoidCallback? fn) {
+    if (fn != null) _onReplyCompletedListeners.add(fn);
+  }
 
   AutoReplyService({
     required RuleRepository ruleRepository,
@@ -57,6 +66,12 @@ class AutoReplyService {
           await _instance!._maybeLog(notification);
         }
         break;
+      case 'onPipelineStatus':
+        if (call.arguments != null) {
+          final data = json.decode(call.arguments as String) as Map<String, dynamic>;
+          onPipelineStatus?.call(data);
+        }
+        break;
       case 'onAiUsageUpdate':
         if (call.arguments != null) {
           final usageData = json.decode(call.arguments as String) as Map<String, dynamic>;
@@ -65,19 +80,19 @@ class AutoReplyService {
         break;
       case 'onReplyFailed':
         print('AutoReplyService: reply failed — ${call.arguments}');
-        onReplyCompleted?.call();
+        for (final fn in _onReplyCompletedListeners) fn();
         break;
       case 'onReplySuccess':
         if (_instance != null && call.arguments != null) {
           final data = json.decode(call.arguments as String) as Map<String, dynamic>;
           await _instance!._logReply(data);
         }
-        onReplyCompleted?.call();
+        for (final fn in _onReplyCompletedListeners) fn();
         break;
       case 'onReplyScheduled':
         if (call.arguments != null) {
           final data = json.decode(call.arguments as String) as Map<String, dynamic>;
-          onReplyScheduled?.call(data);
+          for (final fn in _onReplyScheduledListeners) fn(data);
         }
         break;
       case 'onNotificationRemoved':

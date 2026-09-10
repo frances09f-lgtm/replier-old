@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:injectable/injectable.dart';
 import '../core/hive_config.dart';
 import '../core/constants.dart';
@@ -122,64 +121,10 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
-  /// Update Groq API key
-  Future<void> updateGroqApiKey(String apiKey) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(groqApiKey: apiKey);
-    await updateSettings(updatedSettings);
-  }
-
-  /// Update AI model type (groq / gemini / cerebras)
+  /// Update AI model type (deepseek_local)
   Future<void> updateAiModelType(String modelType) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(aiModelType: modelType);
-    await updateSettings(updatedSettings);
-  }
-
-  /// Update Gemini API key (single key, backward compat)
-  Future<void> updateGeminiApiKey(String apiKey) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(geminiApiKey: apiKey);
-    await updateSettings(updatedSettings);
-  }
-
-  /// Replace all Gemini API keys
-  Future<void> updateGeminiApiKeys(List<String> keys) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(
-      geminiApiKeysJson: jsonEncode(keys),
-    );
-    await updateSettings(updatedSettings);
-  }
-
-  /// Add a Gemini API key to the list
-  Future<void> addGeminiApiKey(String apiKey) async {
-    final settings = getSettings();
-    final keys = List<String>.from(settings.geminiApiKeys);
-    if (!keys.contains(apiKey)) {
-      keys.add(apiKey);
-      final updatedSettings = settings.copyWith(
-        geminiApiKeysJson: jsonEncode(keys),
-      );
-      await updateSettings(updatedSettings);
-    }
-  }
-
-  /// Remove a Gemini API key from the list
-  Future<void> removeGeminiApiKey(String apiKey) async {
-    final settings = getSettings();
-    final keys = List<String>.from(settings.geminiApiKeys);
-    keys.remove(apiKey);
-    final updatedSettings = settings.copyWith(
-      geminiApiKeysJson: jsonEncode(keys),
-    );
-    await updateSettings(updatedSettings);
-  }
-
-  /// Update Cerebras API key
-  Future<void> updateCerebrasApiKey(String apiKey) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(cerebrasApiKey: apiKey);
     await updateSettings(updatedSettings);
   }
 
@@ -190,13 +135,20 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
-  /// Update Gemma Local server config
-  Future<void> updateGemmaLocalConfig(String serverUrl, String model) async {
+  /// Update DeepSeek server config
+  Future<void> updateDeepSeekConfig(String serverUrl, String model) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(
       gemmaLocalServerUrl: serverUrl,
       gemmaLocalModel: model,
     );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update selected local model ID
+  Future<void> updateSelectedLocalModel(String modelId) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(selectedLocalModel: modelId);
     await updateSettings(updatedSettings);
   }
 

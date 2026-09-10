@@ -7,6 +7,7 @@ import '../providers/log_provider.dart';
 import '../providers/rule_provider.dart';
 import '../providers/ai_usage_provider.dart';
 import '../providers/reply_countdown_provider.dart';
+import '../widgets/pipeline_status_card.dart';
 import 'rules_screen.dart';
 import 'logs_screen.dart';
 import 'settings_screen.dart';
@@ -74,6 +75,10 @@ class DashboardScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 _buildReplyDelayBadge(context, settings, replyCountdown),
               ],
+
+              // Pipeline status box — live real-time processing status
+              const SizedBox(height: 12),
+              const PipelineStatusCard(),
 
               // Schedule status badge
               if (settings.scheduleEnabled) ...[
@@ -496,9 +501,7 @@ class DashboardScreen extends ConsumerWidget {
 
   Widget _buildAiModelRow(BuildContext context, String modelKey, int count) {
     final (label, icon, color) = switch (modelKey) {
-      'gemini' => ('Google Gemini', Icons.auto_awesome, Colors.blue),
-      'cerebras' => ('Cerebras AI (GPT-OSS)', Icons.memory, Colors.orange),
-      'groq' => ('Groq AI (Llama 3.3)', Icons.smart_toy, Colors.teal),
+      'deepseek_local' => ('DeepSeek-R1 1.5B (On-Device)', Icons.memory, Colors.purple),
       _ => (modelKey, Icons.smart_toy, Colors.grey),
     };
     return Padding(
@@ -547,11 +550,7 @@ class DashboardScreen extends ConsumerWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    settings.aiModelType == 'gemini'
-                        ? 'Google Gemini'
-                        : settings.aiModelType == 'cerebras'
-                            ? 'Cerebras AI (GPT-OSS)'
-                            : 'Groq AI (Llama 3.3)',
+                    'DeepSeek-R1 1.5B (On-Device)',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -614,17 +613,17 @@ class DashboardScreen extends ConsumerWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _UsageStat(
-                    label: settings.aiModelType == 'gemini' ? 'Prompt' : 'Used',
+                    label: 'Used',
                     value: aiUsage.tokensUsed.toString(),
                     color: Colors.orange,
                   ),
                   _UsageStat(
-                    label: settings.aiModelType == 'gemini' ? 'Output' : 'Remaining',
+                    label: 'Remaining',
                     value: (aiUsage.tokensLimit - aiUsage.tokensUsed).toString(),
                     color: Colors.green,
                   ),
                   _UsageStat(
-                    label: settings.aiModelType == 'gemini' ? 'Total' : 'Limit',
+                    label: 'Limit',
                     value: aiUsage.tokensLimit.toString(),
                     color: Colors.blue,
                   ),

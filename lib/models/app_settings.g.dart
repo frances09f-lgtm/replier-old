@@ -26,12 +26,8 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ignoreGroupChats: fields[5] as bool,
       darkMode: fields[6] as bool,
       aiReplyEnabled: fields[10] as bool,
-      groqApiKey: fields[11] as String,
       aiSystemPrompt: fields[12] as String,
       aiModelType: fields[13] as String,
-      cerebrasApiKey: fields[16] as String,
-      geminiApiKey: fields[17] as String,
-      geminiApiKeysJson: fields[23] as String,
       scheduleEnabled: fields[18] as bool,
       scheduleStartHour: fields[19] as int,
       scheduleStartMinute: fields[20] as int,
@@ -46,6 +42,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       busyUntilTimestamp: fields[30] as int,
       gemmaLocalServerUrl: fields[31] as String,
       gemmaLocalModel: fields[32] as String,
+      selectedLocalModel: fields[33] as String,
       lastUpdated: fields[7] as DateTime,
     );
   }
@@ -53,7 +50,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(30)
+      ..writeByte(27)
       ..writeByte(0)
       ..write(obj.masterEnabled)
       ..writeByte(1)
@@ -74,18 +71,10 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..write(obj.lastUpdated)
       ..writeByte(10)
       ..write(obj.aiReplyEnabled)
-      ..writeByte(11)
-      ..write(obj.groqApiKey)
       ..writeByte(12)
       ..write(obj.aiSystemPrompt)
       ..writeByte(13)
       ..write(obj.aiModelType)
-      ..writeByte(16)
-      ..write(obj.cerebrasApiKey)
-      ..writeByte(17)
-      ..write(obj.geminiApiKey)
-      ..writeByte(23)
-      ..write(obj.geminiApiKeysJson)
       ..writeByte(18)
       ..write(obj.scheduleEnabled)
       ..writeByte(19)
@@ -113,7 +102,9 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(31)
       ..write(obj.gemmaLocalServerUrl)
       ..writeByte(32)
-      ..write(obj.gemmaLocalModel);
+      ..write(obj.gemmaLocalModel)
+      ..writeByte(33)
+      ..write(obj.selectedLocalModel);
   }
 
   @override

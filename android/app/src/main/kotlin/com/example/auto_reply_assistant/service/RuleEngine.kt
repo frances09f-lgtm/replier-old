@@ -374,70 +374,12 @@ class RuleEngine(private val context: Context) {
     fun getAiModelType(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("aiModelType", "groq")
+            if (json != "{}") return JSONObject(json).optString("aiModelType", "deepseek_local")
         } catch (_: Exception) {}
-        return prefs.getString("ai_model_type", "groq") ?: "groq"
+        return prefs.getString("ai_model_type", "deepseek_local") ?: "deepseek_local"
     }
 
-    fun getGroqApiKey(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("groqApiKey", "")
-        } catch (_: Exception) {}
-        return prefs.getString("groq_api_key", "") ?: ""
-    }
-
-    fun getGeminiApiKey(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("geminiApiKey", "")
-        } catch (_: Exception) {}
-        return prefs.getString("gemini_api_key", "") ?: ""
-    }
-
-    fun getGeminiApiKeys(): List<String> {
-        val keys = mutableListOf<String>()
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") {
-                val obj = JSONObject(json)
-                // Try the new list format first
-                val keysJson = obj.optString("geminiApiKeysJson", "[]")
-                Log.d(TAG, "getGeminiApiKeys: geminiApiKeysJson=$keysJson")
-                if (keysJson != "[]") {
-                    val arr = org.json.JSONArray(keysJson)
-                    for (i in 0 until arr.length()) {
-                        val k = arr.optString(i, "")
-                        if (k.isNotEmpty()) keys.add(k)
-                    }
-                }
-                // Fallback: single key field
-                if (keys.isEmpty()) {
-                    val single = obj.optString("geminiApiKey", "")
-                    if (single.isNotEmpty()) keys.add(single)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "getGeminiApiKeys failed: $e")
-        }
-        // Fallback: SharedPreferences single key
-        if (keys.isEmpty()) {
-            val single = prefs.getString("gemini_api_key", "") ?: ""
-            if (single.isNotEmpty()) keys.add(single)
-        }
-        Log.d(TAG, "getGeminiApiKeys: found ${keys.size} keys")
-        return keys
-    }
-
-    fun getCerebrasApiKey(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("cerebrasApiKey", "")
-        } catch (_: Exception) {}
-        return prefs.getString("cerebras_api_key", "") ?: ""
-    }
-
-    fun getGemmaLocalServerUrl(): String {
+    fun getDeepSeekServerUrl(): String {
         try {
             val json = readSettingsJson()
             if (json != "{}") return JSONObject(json).optString("gemmaLocalServerUrl", "")
@@ -445,12 +387,20 @@ class RuleEngine(private val context: Context) {
         return prefs.getString("gemma_local_server_url", "") ?: ""
     }
 
-    fun getGemmaLocalModel(): String {
+    fun getDeepSeekModel(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("gemmaLocalModel", "gemma3:270m")
+            if (json != "{}") return JSONObject(json).optString("gemmaLocalModel", "deepseek_1_5b")
         } catch (_: Exception) {}
-        return prefs.getString("gemma_local_model", "gemma3:270m") ?: "gemma3:270m"
+        return prefs.getString("gemma_local_model", "deepseek_1_5b") ?: "deepseek_1_5b"
+    }
+
+    fun getSelectedLocalModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("selectedLocalModel", "deepseek_1_5b")
+        } catch (_: Exception) {}
+        return prefs.getString("selected_local_model", "deepseek_1_5b") ?: "deepseek_1_5b"
     }
 
     // ── Busy Mode ─────────────────────────────────────────────────────────
@@ -571,11 +521,7 @@ class RuleEngine(private val context: Context) {
                 .putInt(KEY_MAX_REPLY_DELAY_SECONDS, obj.optInt("maxReplyDelaySeconds", 10))
                 .putBoolean(KEY_PREVENT_DUPLICATES, obj.optBoolean("preventDuplicateReplies", true))
                 .putBoolean("ai_reply_enabled", obj.optBoolean("aiReplyEnabled", false))
-                .putString("ai_model_type", obj.optString("aiModelType", "groq"))
-                .putString("groq_api_key", obj.optString("groqApiKey", ""))
-                .putString("gemini_api_key", obj.optString("geminiApiKey", ""))
-                .putString("gemini_api_keys_json", obj.optString("geminiApiKeysJson", "[]"))
-                .putString("cerebras_api_key", obj.optString("cerebrasApiKey", ""))
+                .putString("ai_model_type", obj.optString("aiModelType", "deepseek_local"))
                 .putString("ai_system_prompt", obj.optString("aiSystemPrompt",
                     "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational."))
                 .putBoolean("schedule_enabled", obj.optBoolean("scheduleEnabled", false))
@@ -588,7 +534,8 @@ class RuleEngine(private val context: Context) {
                 .putString("busy_reply_text", obj.optString("busyReplyText", ""))
                 .putLong("busy_until_timestamp", obj.optLong("busyUntilTimestamp", 0))
                 .putString("gemma_local_server_url", obj.optString("gemmaLocalServerUrl", ""))
-                .putString("gemma_local_model", obj.optString("gemmaLocalModel", "gemma3:270m"))
+                .putString("gemma_local_model", obj.optString("gemmaLocalModel", "deepseek_1_5b"))
+                .putString("selected_local_model", obj.optString("selectedLocalModel", "gemma_270m"))
                 .putBoolean(KEY_CONTACT_WHITELIST_ENABLED, obj.optBoolean("contactWhitelistEnabled", false))
                 .putString(KEY_CONTACT_WHITELIST, obj.optString("contactWhitelist", "[]"))
                 .putString(KEY_CONTACT_BLACKLIST, obj.optString("contactBlacklist", "[]"))

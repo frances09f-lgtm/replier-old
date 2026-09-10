@@ -187,6 +187,9 @@ class AppNotificationListenerService : NotificationListenerService() {
             return
         }
 
+        // Emit "got_message" to Flutter UI
+        notifyPipelineStatus("got_message", title)
+
         // Rule matching
         val rule = ruleEngine.findMatchingRule(message, sender = title)
 
@@ -228,9 +231,12 @@ class AppNotificationListenerService : NotificationListenerService() {
                 }
                 val modelType = ruleEngine.getAiModelType()
                 val normalizedName = normalizeSenderName(title, packageName)
-                // Batch window: wait 5s for more messages before firing
-                val batchWindowMs = 5000L
+                // Batch window: wait 2s for more messages before firing
+                val batchWindowMs = 2000L
                 Log.d(TAG, "No rule matched. Buffering for AI batch reply (model: $modelType, batchWindow: ${batchWindowMs}ms)...")
+
+                // Emit "analysing" immediately so the UI shows the processing state
+                notifyPipelineStatus("analysing", title)
 
                 messageBatcher.addMessage(
                     sender = normalizedName,
@@ -255,6 +261,10 @@ class AppNotificationListenerService : NotificationListenerService() {
         if (ruleEngine.shouldPreventDuplicates() &&
             ruleEngine.wasReplyRecentlySent(title, replyText)
         ) return
+
+        // Emit "analysing" then "reply_ready" now that a rule match was found
+        notifyPipelineStatus("analysing", title)
+        notifyPipelineStatus("reply_ready", title)
 
         // Confirm before reply: show approval notification instead of sending directly
         if (ruleEngine.isConfirmBeforeReplyEnabled()) {
@@ -302,6 +312,16 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
         mainHandler.post {
             methodChannel?.invokeMethod("onReplyScheduled", data.toString())
+        }
+    }
+
+    private fun notifyPipelineStatus(state: String, sender: String) {
+        val data = JSONObject().apply {
+            put("state", state)
+            put("sender", sender)
+        }
+        mainHandler.post {
+            methodChannel?.invokeMethod("onPipelineStatus", data.toString())
         }
     }
 
@@ -408,10 +428,7 @@ class AppNotificationListenerService : NotificationListenerService() {
 
         Log.d(TAG, "sendBatchedAiReply: sender=$sender, ${messages.size} messages, history=${history.size} entries, model=$modelType")
 
-        var primaryFailed = false
-        var onBatchResult: ((String?, Int, Int, Int, Int, String?) -> Unit)? = null
-
-        onBatchResult = { aiReply, tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error ->
+        val onBatchResult: (String?, Int, Int, Int, Int, String?) -> Unit = { aiReply, tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error ->
             if (tokensUsed > 0) {
                 ruleEngine.saveAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
                 notifyAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
@@ -422,6 +439,9 @@ class AppNotificationListenerService : NotificationListenerService() {
                     ConversationHistory.addMessage(sender, "user", msg)
                 }
                 ConversationHistory.addMessage(sender, "assistant", aiReply)
+
+                // Emit "reply_ready" before scheduling the send
+                notifyPipelineStatus("reply_ready", sender)
 
                 // Confirm before reply: show approval notification instead of sending directly
                 if (ruleEngine.isConfirmBeforeReplyEnabled()) {
@@ -445,118 +465,31 @@ class AppNotificationListenerService : NotificationListenerService() {
                         sendReply(batch.latestNotificationKey, sender, aiReply, isAiReply = true, aiModelType = modelType)
                     }, delayMs)
                 }
-            } else if (!primaryFailed) {
-                primaryFailed = true
-                Log.w(TAG, "Primary AI ($modelType) failed for sender=$sender, falling back to Groq")
-                fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
             } else {
                 Log.w(TAG, "Batched AI returned empty reply for sender=$sender")
             }
         }
 
         when (modelType) {
-            "smart_reply" -> {
-                SmartReplyService().getAiReplyBatch(
-                    senderName = sender,
-                    incomingMessages = messages,
-                    conversationHistory = history
-                ) { aiReply, usage ->
-                    onBatchResult?.invoke(
-                        aiReply,
-                        usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                        usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                    )
-                }
-            }
-            "gemma_local" -> {
-                GemmaLocalService(applicationContext).getAiReplyBatch(
+            "deepseek_local" -> {
+                val selectedModel = ruleEngine.getSelectedLocalModel()
+                DeepSeekLocalService.getInstance(applicationContext).getAiReplyBatch(
+                    modelId = selectedModel,
                     senderName = sender,
                     incomingMessages = messages,
                     systemPrompt = finalSystemPrompt,
                     conversationHistory = history
                 ) { aiReply, usage ->
-                    onBatchResult?.invoke(
+                    onBatchResult.invoke(
                         aiReply,
                         usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
                         usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
                     )
                 }
             }
-            "cerebras" -> {
-                val apiKey = ruleEngine.getCerebrasApiKey()
-                if (apiKey.isNotEmpty()) {
-                    CerebrasAiService().getAiReplyBatch(
-                        apiKey = apiKey,
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history
-                    ) { aiReply, usage ->
-                        onBatchResult?.invoke(
-                            aiReply,
-                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                        )
-                    }
-                } else {
-                    Log.d(TAG, "Cerebras API key not set, falling back to Groq")
-                    fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
-                }
-            }
-            "gemini" -> {
-                val apiKeys = ruleEngine.getGeminiApiKeys()
-                if (apiKeys.isNotEmpty()) {
-                    GeminiAiService().getAiReplyBatch(
-                        apiKeys = apiKeys,
-                        model = "gemini-2.5-flash",
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history
-                    ) { aiReply, usage ->
-                        onBatchResult?.invoke(
-                            aiReply,
-                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                        )
-                    }
-                } else {
-                    Log.d(TAG, "Gemini API key not set, falling back to Groq")
-                    fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
-                }
-            }
             else -> {
-                fallBackToGroq(sender, messages, history, finalSystemPrompt, batch.latestNotificationKey, modelType, onBatchResult!!)
+                Log.w(TAG, "Unknown AI model type: $modelType")
             }
-        }
-    }
-
-    private fun fallBackToGroq(
-        sender: String,
-        messages: List<String>,
-        history: List<ConversationHistory.ChatMessage>,
-        systemPrompt: String,
-        notificationKey: String,
-        modelType: String,
-        onBatchResult: (String?, Int, Int, Int, Int, String?) -> Unit
-    ) {
-        val groqKey = ruleEngine.getGroqApiKey()
-        if (groqKey.isNotEmpty()) {
-            GroqAiService().getAiReplyBatch(
-                apiKey = groqKey,
-                senderName = sender,
-                incomingMessages = messages,
-                systemPrompt = systemPrompt,
-                conversationHistory = history
-            ) { aiReply, usage ->
-                onBatchResult(
-                    aiReply,
-                    usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                    usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                )
-            }
-        } else {
-            Log.d(TAG, "Groq API key not set, cannot send batched reply")
         }
     }
 

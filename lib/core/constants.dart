@@ -28,10 +28,8 @@ class AppConstants {
 
   // AI defaults
   static const bool defaultAiReplyEnabled = false;
-  static const String defaultAiModelType = 'smart_reply';
-  static const String defaultLocalModelPath = '';
-  static const bool defaultLocalModelDownloaded = false;
-  static const String defaultHfToken = '';
+  static const String defaultAiModelType = 'deepseek_local';
+  static const String defaultSelectedLocalModel = 'deepseek_1_5b';
   static const String defaultAiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.';
 
   // Schedule defaults

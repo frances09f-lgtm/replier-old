@@ -4,6 +4,7 @@ import 'core/hive_config.dart';
 import 'core/injection_container.dart';
 import 'core/provider_container.dart';
 import 'providers/settings_provider.dart';
+import 'providers/pipeline_status_provider.dart';
 import 'repositories/log_repository.dart';
 import 'repositories/rule_repository.dart';
 import 'services/auto_reply_service.dart';
@@ -24,6 +25,10 @@ void main() async {
     logRepository: LogRepository(),
     providerContainer: globalProviderContainer,
   ).initialize();
+
+  // Eagerly initialise pipeline status provider so it registers
+  // MethodChannel callbacks before the first notification arrives.
+  globalProviderContainer.read(pipelineStatusProvider);
 
   runApp(
     UncontrolledProviderScope(

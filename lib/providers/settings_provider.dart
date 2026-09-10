@@ -112,50 +112,8 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateGroqApiKey(String apiKey) async {
-    await _repository.updateGroqApiKey(apiKey);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
   Future<void> updateAiModelType(String modelType) async {
     await _repository.updateAiModelType(modelType);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> updateGeminiApiKey(String apiKey) async {
-    await _repository.updateGeminiApiKey(apiKey);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> updateGeminiApiKeys(List<String> keys) async {
-    await _repository.updateGeminiApiKeys(keys);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> addGeminiApiKey(String apiKey) async {
-    await _repository.addGeminiApiKey(apiKey);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> removeGeminiApiKey(String apiKey) async {
-    await _repository.removeGeminiApiKey(apiKey);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
-  Future<void> updateCerebrasApiKey(String apiKey) async {
-    await _repository.updateCerebrasApiKey(apiKey);
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);
@@ -168,8 +126,15 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateGemmaLocalConfig(String serverUrl, String model) async {
-    await _repository.updateGemmaLocalConfig(serverUrl, model);
+  Future<void> updateDeepSeekConfig(String serverUrl, String model) async {
+    await _repository.updateDeepSeekConfig(serverUrl, model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateSelectedLocalModel(String modelId) async {
+    await _repository.updateSelectedLocalModel(modelId);
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);
