@@ -140,6 +140,13 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
+  Future<void> updateCerebrasConfig(String apiKey, String model) async {
+    await _repository.updateCerebrasConfig(apiKey, model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
   Future<void> toggleContactWhitelist() async {
     await _repository.toggleContactWhitelist();
     final s = _repository.getSettings();

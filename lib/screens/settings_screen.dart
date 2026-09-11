@@ -211,7 +211,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Uses on-device LLM (fully offline, download model on first use)',
+            'Use on-device model, Cerebras cloud API, or Smart Hybrid (local first, API when message is hard/confusing)',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Colors.grey[600],
             ),
@@ -227,24 +227,84 @@ class SettingsScreen extends ConsumerWidget {
             },
           ),
 
-            if (settings.aiReplyEnabled) ...[
+          if (settings.aiReplyEnabled) ...[
+            // ── AI Mode selector ───────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('AI Mode', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                  const SizedBox(height: 8),
+                  // Smart Hybrid tile
+                  _AiModeTile(
+                    value: 'auto_local_first',
+                    groupValue: settings.aiModelType,
+                    title: 'Smart Hybrid (Recommended)',
+                    subtitle: 'Local model for simple messages, Cerebras API for hard/confusing ones',
+                    icon: Icons.auto_awesome,
+                    iconColor: Colors.deepPurple,
+                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('auto_local_first'),
+                  ),
+                  const SizedBox(height: 8),
+                  // Local only tile
+                  _AiModeTile(
+                    value: 'phi_local',
+                    groupValue: settings.aiModelType,
+                    title: 'Local Model Only',
+                    subtitle: 'Fully offline — no internet needed',
+                    icon: Icons.phone_android,
+                    iconColor: Colors.green,
+                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('phi_local'),
+                  ),
+                  const SizedBox(height: 8),
+                  // Cerebras API only tile
+                  _AiModeTile(
+                    value: 'cerebras_api',
+                    groupValue: settings.aiModelType,
+                    title: 'Cerebras Cloud API Only',
+                    subtitle: 'Fast cloud LLM — requires API key & internet',
+                    icon: Icons.cloud,
+                    iconColor: Colors.blue,
+                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('cerebras_api'),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Local model picker (shown when local or hybrid mode) ───
+            if (settings.aiModelType == 'phi_local' || settings.aiModelType == 'auto_local_first') ...[
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('AI Model', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4),
+                      child: Text('Local Model', style: TextStyle(fontWeight: FontWeight.w500)),
+                    ),
                     const SizedBox(height: 4),
                     _ModelRadioTile(
-                      value: 'deepseek_1_5b',
+                      value: 'llama_3_2_1b',
                       groupValue: settings.selectedLocalModel,
-                      title: 'DeepSeek-R1 1.5B',
-                      subtitle: '~1GB, strong reasoning, distilled from R1',
+                      title: 'Llama 3.2 1B Instruct',
+                      subtitle: '~800MB, blazing fast for basic replies',
                       onTap: () {
-                        ref.read(appSettingsProvider.notifier).updateAiModelType('deepseek_local');
-                        ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('deepseek_1_5b');
+                        ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_1b');
                       },
-                      modelId: 'deepseek_1_5b',
+                      modelId: 'llama_3_2_1b',
+                      selectedModelId: settings.selectedLocalModel,
+                    ),
+                    const SizedBox(height: 8),
+                    _ModelRadioTile(
+                      value: 'llama_3_2_3b',
+                      groupValue: settings.selectedLocalModel,
+                      title: 'Llama 3.2 3B Instruct',
+                      subtitle: '~2GB, highly intelligent, fits comfortably in RAM',
+                      onTap: () {
+                        ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_3b');
+                      },
+                      modelId: 'llama_3_2_3b',
                       selectedModelId: settings.selectedLocalModel,
                     ),
                   ],
@@ -252,17 +312,24 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
 
-            if (settings.aiModelType == 'deepseek_local')
-              ListTile(
-                title: const Text('System Prompt'),
-                subtitle: Text(
-                  settings.aiSystemPrompt.length > 50
-                      ? '${settings.aiSystemPrompt.substring(0, 50)}...'
-                      : settings.aiSystemPrompt,
-                ),
+            // ── Cerebras API config (shown when cerebras or hybrid mode) ─
+            if (settings.aiModelType == 'cerebras_api' || settings.aiModelType == 'auto_local_first') ...[
+              _CerebrasApiSection(settings: settings, ref: ref),
+            ],
+
+            // ── System Prompt ─────────────────────────────────────────
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('System Prompt'),
+              subtitle: Text(
+                settings.aiSystemPrompt.length > 50
+                    ? '${settings.aiSystemPrompt.substring(0, 50)}...'
+                    : settings.aiSystemPrompt,
+              ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showSystemPromptDialog(context, ref, settings.aiSystemPrompt),
             ),
+          ],
 
           const SizedBox(height: 24),
 
@@ -708,7 +775,223 @@ class SettingsScreen extends ConsumerWidget {
   }
 }
 
+/// Simple card tile for AI mode selection (local / cerebras / hybrid)
+class _AiModeTile extends StatelessWidget {
+  final String value;
+  final String groupValue;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _AiModeTile({
+    required this.value,
+    required this.groupValue,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.iconColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = value == groupValue;
+    return Card(
+      elevation: isSelected ? 2 : 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(
+          color: isSelected ? iconColor : Colors.grey.shade300,
+          width: isSelected ? 2 : 1,
+        ),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        leading: CircleAvatar(
+          backgroundColor: isSelected ? iconColor.withOpacity(0.15) : Colors.grey.shade100,
+          child: Icon(icon, color: isSelected ? iconColor : Colors.grey, size: 20),
+        ),
+        title: Text(title,
+            style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                fontSize: 14)),
+        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+        trailing: Radio<String>(
+          value: value,
+          groupValue: groupValue,
+          onChanged: (_) => onTap(),
+          activeColor: iconColor,
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+/// Cerebras API key configuration section shown in settings
+class _CerebrasApiSection extends StatefulWidget {
+  final AppSettings settings;
+  final WidgetRef ref;
+
+  const _CerebrasApiSection({required this.settings, required this.ref});
+
+  @override
+  State<_CerebrasApiSection> createState() => _CerebrasApiSectionState();
+}
+
+class _CerebrasApiSectionState extends State<_CerebrasApiSection> {
+  late TextEditingController _keyController;
+  bool _obscure = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _keyController = TextEditingController(text: widget.settings.cerebrasApiKey);
+  }
+
+  @override
+  void didUpdateWidget(_CerebrasApiSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.settings.cerebrasApiKey != widget.settings.cerebrasApiKey) {
+      _keyController.text = widget.settings.cerebrasApiKey;
+    }
+  }
+
+  @override
+  void dispose() {
+    _keyController.dispose();
+    super.dispose();
+  }
+
+  void _saveKey() {
+    widget.ref.read(appSettingsProvider.notifier).updateCerebrasConfig(
+      _keyController.text.trim(),
+      widget.settings.cerebrasModel,
+    );
+    FocusScope.of(context).unfocus();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Cerebras API key saved'), duration: Duration(seconds: 2)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasKey = widget.settings.cerebrasApiKey.isNotEmpty;
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.cloud, size: 18, color: Colors.blue),
+                const SizedBox(width: 8),
+                const Text('Cerebras API Key',
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                const Spacer(),
+                if (hasKey)
+                  const Icon(Icons.check_circle, color: Colors.green, size: 18),
+              ],
+            ),
+            const SizedBox(height: 4),
+            // API key link
+            InkWell(
+              onTap: () async {
+                const url = 'https://cloud.cerebras.ai/';
+                try {
+                  await const MethodChannel('com.example.auto_reply_assistant/native')
+                      .invokeMethod('openUrl', {'url': url});
+                } catch (_) {
+                  await Clipboard.setData(const ClipboardData(text: url));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Copied: https://cloud.cerebras.ai/'),
+                        duration: Duration(seconds: 4),
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text(
+                '🔗 Get free API key → cloud.cerebras.ai',
+                style: TextStyle(
+                  color: Colors.blue,
+                  fontSize: 12,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            // API key text field
+            TextField(
+              controller: _keyController,
+              obscureText: _obscure,
+              decoration: InputDecoration(
+                labelText: 'API Key',
+                hintText: 'csk-...',
+                border: const OutlineInputBorder(),
+                isDense: true,
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off, size: 20),
+                      onPressed: () => setState(() => _obscure = !_obscure),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.save, size: 20, color: Colors.blue),
+                      onPressed: _saveKey,
+                      tooltip: 'Save',
+                    ),
+                  ],
+                ),
+              ),
+              onSubmitted: (_) => _saveKey(),
+            ),
+            const SizedBox(height: 8),
+            // Model selector
+            DropdownButtonFormField<String>(
+              value: widget.settings.cerebrasModel,
+              decoration: const InputDecoration(
+                labelText: 'Cerebras Model',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: const [
+                DropdownMenuItem(value: 'llama-3.3-70b', child: Text('Llama 3.3 70B (Smart)')),
+                DropdownMenuItem(value: 'llama3.1-8b', child: Text('Llama 3.1 8B (Fast)')),
+              ],
+              onChanged: (val) {
+                if (val != null) {
+                  widget.ref.read(appSettingsProvider.notifier).updateCerebrasConfig(
+                    widget.settings.cerebrasApiKey,
+                    val,
+                  );
+                }
+              },
+            ),
+            if (!hasKey) ...[
+              const SizedBox(height: 8),
+              Text(
+                '⚠ API key required for Cerebras Cloud replies',
+                style: TextStyle(fontSize: 11, color: Colors.orange[700]),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _ModelRadioTile extends StatefulWidget {
+
   final String value;
   final String groupValue;
   final String title;
@@ -747,7 +1030,7 @@ class _ModelRadioTileState extends State<_ModelRadioTile> {
     setState(() => _checking = true);
     try {
       const channel = MethodChannel('com.example.auto_reply_assistant/native');
-      final result = await channel.invokeMethod<Map>('getDeepSeekStatus', {'modelId': widget.modelId});
+      final result = await channel.invokeMethod<Map>('getPhiStatus', {'modelId': widget.modelId});
       if (result != null && mounted) {
         setState(() => _available = result['available'] == true);
       }
@@ -767,7 +1050,7 @@ class _ModelRadioTileState extends State<_ModelRadioTile> {
           }
         }
       });
-      await channel.invokeMethod('downloadDeepSeekModel', {'modelId': widget.modelId});
+      await channel.invokeMethod('downloadPhiModel', {'modelId': widget.modelId});
       await _checkStatus();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Download failed: $e')));
@@ -778,7 +1061,7 @@ class _ModelRadioTileState extends State<_ModelRadioTile> {
   Future<void> _delete() async {
     try {
       const channel = MethodChannel('com.example.auto_reply_assistant/native');
-      await channel.invokeMethod('deleteDeepSeekModel', {'modelId': widget.modelId});
+      await channel.invokeMethod('deletePhiModel', {'modelId': widget.modelId});
       await _checkStatus();
     } catch (_) {}
   }
@@ -810,7 +1093,7 @@ class _ModelRadioTileState extends State<_ModelRadioTile> {
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                     : isAvailable
                         ? Icon(Icons.check_circle, color: isThisSelected ? Colors.green : Colors.grey)
-                        : Icon(Icons.download, color: Colors.orange))
+                        : const Icon(Icons.download, color: Colors.orange))
                 : Icon(Icons.phone_android, color: Colors.green[700]),
             onTap: isLocalModel && !isAvailable ? null : () => widget.onTap(),
           ),

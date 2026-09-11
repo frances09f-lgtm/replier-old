@@ -390,17 +390,33 @@ class RuleEngine(private val context: Context) {
     fun getDeepSeekModel(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("gemmaLocalModel", "deepseek_1_5b")
+            if (json != "{}") return JSONObject(json).optString("gemmaLocalModel", "llama_3_2_1b")
         } catch (_: Exception) {}
-        return prefs.getString("gemma_local_model", "deepseek_1_5b") ?: "deepseek_1_5b"
+        return prefs.getString("gemma_local_model", "llama_3_2_1b") ?: "llama_3_2_1b"
     }
 
     fun getSelectedLocalModel(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("selectedLocalModel", "deepseek_1_5b")
+            if (json != "{}") return JSONObject(json).optString("selectedLocalModel", "llama_3_2_1b")
         } catch (_: Exception) {}
-        return prefs.getString("selected_local_model", "deepseek_1_5b") ?: "deepseek_1_5b"
+        return prefs.getString("selected_local_model", "llama_3_2_1b") ?: "llama_3_2_1b"
+    }
+
+    fun getCerebrasApiKey(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("cerebrasApiKey", "")
+        } catch (_: Exception) {}
+        return prefs.getString("cerebras_api_key", "") ?: ""
+    }
+
+    fun getCerebrasModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("cerebrasModel", "llama-3.3-70b")
+        } catch (_: Exception) {}
+        return prefs.getString("cerebras_model", "llama-3.3-70b") ?: "llama-3.3-70b"
     }
 
     // ── Busy Mode ─────────────────────────────────────────────────────────
@@ -539,6 +555,8 @@ class RuleEngine(private val context: Context) {
                 .putBoolean(KEY_CONTACT_WHITELIST_ENABLED, obj.optBoolean("contactWhitelistEnabled", false))
                 .putString(KEY_CONTACT_WHITELIST, obj.optString("contactWhitelist", "[]"))
                 .putString(KEY_CONTACT_BLACKLIST, obj.optString("contactBlacklist", "[]"))
+                .putString("cerebras_api_key", obj.optString("cerebrasApiKey", ""))
+                .putString("cerebras_model", obj.optString("cerebrasModel", "llama-3.3-70b"))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

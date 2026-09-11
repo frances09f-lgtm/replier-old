@@ -44,9 +44,9 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     try {
       final settings = _ref.read(appSettingsProvider);
 
-      final reply = await _callDeepSeek(text, settings);
+      final reply = await _callPhi(text, settings);
       final aiMessage = ChatMessage(
-        role: 'assistant', content: reply, model: 'deepseek_local',
+        role: 'assistant', content: reply, model: 'phi_local',
       );
       await box.put(aiMessage.id, aiMessage);
       state = [...state, aiMessage];
@@ -210,7 +210,7 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     return sb.toString();
   }
 
-  Future<String> _callDeepSeek(String text, AppSettings settings) async {
+  Future<String> _callPhi(String text, AppSettings settings) async {
     const channel = MethodChannel('com.example.auto_reply_assistant/native');
     try {
       final history = state
@@ -225,7 +225,7 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
           ? history.sublist(history.length - 10)
           : history;
 
-      final result = await channel.invokeMethod<String>('chatWithDeepSeek', {
+      final result = await channel.invokeMethod<String>('chatWithPhi', {
         'modelId': settings.selectedLocalModel,
         'message': text,
         'systemPrompt': _sanitize(settings.aiSystemPrompt),
@@ -233,12 +233,12 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
       });
 
       if (result == null || result.isEmpty) {
-        throw Exception('DeepSeek returned empty response');
+        throw Exception('Phi returned empty response');
       }
       return result;
     } catch (e) {
       if (e is MissingPluginException) {
-        throw Exception('DeepSeek not available. Download the model in Settings first.');
+        throw Exception('Phi not available. Download the model in Settings first.');
       }
       rethrow;
     }

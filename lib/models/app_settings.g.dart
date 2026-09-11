@@ -43,6 +43,8 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       gemmaLocalServerUrl: fields[31] as String,
       gemmaLocalModel: fields[32] as String,
       selectedLocalModel: fields[33] as String,
+      cerebrasApiKey: fields[34] as String? ?? '',
+      cerebrasModel: fields[35] as String? ?? 'llama-3.3-70b',
       lastUpdated: fields[7] as DateTime,
     );
   }
@@ -50,7 +52,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(27)
+      ..writeByte(29)
       ..writeByte(0)
       ..write(obj.masterEnabled)
       ..writeByte(1)
@@ -104,7 +106,11 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(32)
       ..write(obj.gemmaLocalModel)
       ..writeByte(33)
-      ..write(obj.selectedLocalModel);
+      ..write(obj.selectedLocalModel)
+      ..writeByte(34)
+      ..write(obj.cerebrasApiKey)
+      ..writeByte(35)
+      ..write(obj.cerebrasModel);
   }
 
   @override

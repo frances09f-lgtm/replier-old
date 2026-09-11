@@ -471,9 +471,9 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
 
         when (modelType) {
-            "deepseek_local" -> {
+            "phi_local" -> {
                 val selectedModel = ruleEngine.getSelectedLocalModel()
-                DeepSeekLocalService.getInstance(applicationContext).getAiReplyBatch(
+                PhiLocalService.getInstance(applicationContext).getAiReplyBatch(
                     modelId = selectedModel,
                     senderName = sender,
                     incomingMessages = messages,
@@ -485,6 +485,113 @@ class AppNotificationListenerService : NotificationListenerService() {
                         usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
                         usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
                     )
+                }
+            }
+            "cerebras_api" -> {
+                val apiKey = ruleEngine.getCerebrasApiKey()
+                val model = ruleEngine.getCerebrasModel()
+                PhiLocalService.getInstance(applicationContext).getCerebrasReplyBatch(
+                    apiKey = apiKey,
+                    model = model,
+                    senderName = sender,
+                    incomingMessages = messages,
+                    systemPrompt = finalSystemPrompt,
+                    conversationHistory = history
+                ) { aiReply, usage ->
+                    onBatchResult.invoke(
+                        aiReply,
+                        usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                        usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                    )
+                }
+            }
+            "auto_local_first" -> {
+                val service = PhiLocalService.getInstance(applicationContext)
+                val apiKey = ruleEngine.getCerebrasApiKey()
+                val cerebrasModel = ruleEngine.getCerebrasModel()
+                val selectedLocalModel = ruleEngine.getSelectedLocalModel()
+                val isHard = service.isMessageHardOrConfusing(messages)
+
+                if (isHard && apiKey.isNotBlank()) {
+                    Log.d(TAG, "Message is hard/confusing, escalating directly to Cerebras API for $sender")
+                    service.getCerebrasReplyBatch(
+                        apiKey = apiKey,
+                        model = cerebrasModel,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history
+                    ) { aiReply, usage ->
+                        onBatchResult.invoke(
+                            aiReply,
+                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                        )
+                    }
+                } else if (service.isModelAvailable(selectedLocalModel)) {
+                    Log.d(TAG, "Attempting local model first for $sender")
+                    service.getAiReplyBatch(
+                        modelId = selectedLocalModel,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history
+                    ) { localReply, usage ->
+                        val failed = usage?.error != null || localReply.isNullOrBlank()
+                        if (failed && apiKey.isNotBlank()) {
+                            Log.d(TAG, "Local model failed (${usage?.error}), falling back to Cerebras API for $sender")
+                            service.getCerebrasReplyBatch(
+                                apiKey = apiKey,
+                                model = cerebrasModel,
+                                senderName = sender,
+                                incomingMessages = messages,
+                                systemPrompt = finalSystemPrompt,
+                                conversationHistory = history
+                            ) { apiReply, apiUsage ->
+                                onBatchResult.invoke(
+                                    apiReply,
+                                    apiUsage?.tokensUsed ?: 0, apiUsage?.tokensRemaining ?: 0,
+                                    apiUsage?.tokensLimit ?: 0, apiUsage?.resetInSeconds ?: 0, apiUsage?.error
+                                )
+                            }
+                        } else {
+                            onBatchResult.invoke(
+                                localReply,
+                                usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                                usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                            )
+                        }
+                    }
+                } else if (apiKey.isNotBlank()) {
+                    Log.d(TAG, "Local model not downloaded, routing to Cerebras API for $sender")
+                    service.getCerebrasReplyBatch(
+                        apiKey = apiKey,
+                        model = cerebrasModel,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history
+                    ) { aiReply, usage ->
+                        onBatchResult.invoke(
+                            aiReply,
+                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                        )
+                    }
+                } else {
+                    service.getAiReplyBatch(
+                        modelId = selectedLocalModel,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history
+                    ) { aiReply, usage ->
+                        onBatchResult.invoke(
+                            aiReply,
+                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
+                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
+                        )
+                    }
                 }
             }
             else -> {

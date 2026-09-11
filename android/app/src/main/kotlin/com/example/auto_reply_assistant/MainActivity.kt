@@ -9,7 +9,7 @@ import androidx.annotation.NonNull
 import com.example.auto_reply_assistant.service.AppNotificationListenerService
 import com.example.auto_reply_assistant.service.AutoReplyForegroundService
 import com.example.auto_reply_assistant.service.ConversationHistory
-import com.example.auto_reply_assistant.service.DeepSeekLocalService
+import com.example.auto_reply_assistant.service.PhiLocalService
 import com.example.auto_reply_assistant.service.RuleEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -65,6 +65,20 @@ class MainActivity : FlutterActivity() {
                     result.success(isAccessibilityServiceEnabled())
                 "isBatteryOptimizationDisabled" ->
                     result.success(isBatteryOptimizationDisabled())
+                "openUrl" -> {
+                    val url = call.argument<String>("url")
+                    if (url != null) {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            startActivity(intent)
+                            result.success(null)
+                        } catch (e: Exception) {
+                            result.error("URL_ERROR", e.message, null)
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENTS", "url is null", null)
+                    }
+                }
 
                 // Flutter calls this to sync rules into SharedPreferences
                 "syncRules" -> {
@@ -96,8 +110,8 @@ class MainActivity : FlutterActivity() {
                 }
 
                 // Chat with on-device local model
-                "chatWithDeepSeek" -> {
-                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
+                "chatWithPhi" -> {
+                    val modelId = call.argument<String>("modelId") ?: "llama_3_2_1b"
                     val message = call.argument<String>("message") ?: ""
                     val systemPrompt = call.argument<String>("systemPrompt") ?: ""
                     val historyRaw = call.argument<List<Map<String, String>>>("history") ?: emptyList()
@@ -108,7 +122,7 @@ class MainActivity : FlutterActivity() {
                         ConversationHistory.ChatMessage(role, content)
                     }
 
-                    DeepSeekLocalService.getInstance(applicationContext).getAiReply(
+                    PhiLocalService.getInstance(applicationContext).getAiReply(
                         modelId = modelId,
                         senderName = "User",
                         incomingMessage = message,
@@ -123,9 +137,9 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
-                "getDeepSeekStatus" -> {
-                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
-                    val service = DeepSeekLocalService.getInstance(applicationContext)
+                "getPhiStatus" -> {
+                    val modelId = call.argument<String>("modelId") ?: "llama_3_2_1b"
+                    val service = PhiLocalService.getInstance(applicationContext)
                     val available = service.isModelAvailable(modelId)
                     result.success(mapOf(
                         "available" to available,
@@ -134,9 +148,9 @@ class MainActivity : FlutterActivity() {
                     ))
                 }
 
-                "downloadDeepSeekModel" -> {
-                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
-                    val service = DeepSeekLocalService.getInstance(applicationContext)
+                "downloadPhiModel" -> {
+                    val modelId = call.argument<String>("modelId") ?: "llama_3_2_1b"
+                    val service = PhiLocalService.getInstance(applicationContext)
                     service.downloadModel(
                         modelId = modelId,
                         onProgress = { progress ->
@@ -153,9 +167,9 @@ class MainActivity : FlutterActivity() {
                     )
                 }
 
-                "deleteDeepSeekModel" -> {
-                    val modelId = call.argument<String>("modelId") ?: "deepseek_1_5b"
-                    val service = DeepSeekLocalService.getInstance(applicationContext)
+                "deletePhiModel" -> {
+                    val modelId = call.argument<String>("modelId") ?: "llama_3_2_1b"
+                    val service = PhiLocalService.getInstance(applicationContext)
                     service.deleteModel(modelId)
                     result.success(null)
                 }

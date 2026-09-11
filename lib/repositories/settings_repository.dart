@@ -152,6 +152,16 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
+  /// Update Cerebras API configuration
+  Future<void> updateCerebrasConfig(String apiKey, String model) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      cerebrasApiKey: apiKey,
+      cerebrasModel: model,
+    );
+    await updateSettings(updatedSettings);
+  }
+
   /// Update schedule settings
   Future<void> updateSchedule({
     required bool enabled,

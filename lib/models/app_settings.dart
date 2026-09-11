@@ -87,6 +87,12 @@ class AppSettings extends HiveObject {
   @HiveField(33)
   String selectedLocalModel;
 
+  @HiveField(34)
+  String cerebrasApiKey;
+
+  @HiveField(35)
+  String cerebrasModel;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
@@ -98,7 +104,7 @@ class AppSettings extends HiveObject {
     this.darkMode = false,
     this.aiReplyEnabled = false,
     this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
-    this.aiModelType = 'deepseek_local',
+    this.aiModelType = 'phi_local',
     this.scheduleEnabled = false,
     this.scheduleStartHour = 8,
     this.scheduleStartMinute = 0,
@@ -108,13 +114,15 @@ class AppSettings extends HiveObject {
     this.contactWhitelistEnabled = false,
     this.contactWhitelist = const [],
     this.contactBlacklist = const [],
-      this.busyModeEnabled = false,
-      this.busyReplyText = '',
-      this.busyUntilTimestamp = 0,
-      this.gemmaLocalServerUrl = '',
-      this.gemmaLocalModel = 'deepseek_1_5b',
-      this.selectedLocalModel = 'deepseek_1_5b',
-      required this.lastUpdated,
+    this.busyModeEnabled = false,
+    this.busyReplyText = '',
+    this.busyUntilTimestamp = 0,
+    this.gemmaLocalServerUrl = '',
+    this.gemmaLocalModel = 'llama_3_2_1b',
+    this.selectedLocalModel = 'llama_3_2_1b',
+    this.cerebrasApiKey = '',
+    this.cerebrasModel = 'llama-3.3-70b',
+    required this.lastUpdated,
   });
 
   /// Convert to JSON
@@ -146,6 +154,8 @@ class AppSettings extends HiveObject {
       'gemmaLocalServerUrl': gemmaLocalServerUrl,
       'gemmaLocalModel': gemmaLocalModel,
       'selectedLocalModel': selectedLocalModel,
+      'cerebrasApiKey': cerebrasApiKey,
+      'cerebrasModel': cerebrasModel,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -162,7 +172,7 @@ class AppSettings extends HiveObject {
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
       aiReplyEnabled: json['aiReplyEnabled'] ?? false,
-      aiModelType: (json['aiModelType'] as String?) ?? 'deepseek_local',
+      aiModelType: (json['aiModelType'] as String?) ?? 'phi_local',
       aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
       scheduleEnabled: json['scheduleEnabled'] ?? false,
       scheduleStartHour: json['scheduleStartHour'] ?? 8,
@@ -177,8 +187,10 @@ class AppSettings extends HiveObject {
       busyReplyText: json['busyReplyText'] ?? '',
       busyUntilTimestamp: json['busyUntilTimestamp'] ?? 0,
       gemmaLocalServerUrl: (json['gemmaLocalServerUrl'] as String?) ?? '',
-      gemmaLocalModel: (json['gemmaLocalModel'] as String?) ?? 'deepseek_1_5b',
-      selectedLocalModel: (json['selectedLocalModel'] as String?) ?? 'deepseek_1_5b',
+      gemmaLocalModel: (json['gemmaLocalModel'] as String?) ?? 'llama_3_2_1b',
+      selectedLocalModel: (json['selectedLocalModel'] as String?) ?? 'llama_3_2_1b',
+      cerebrasApiKey: (json['cerebrasApiKey'] as String?) ?? '',
+      cerebrasModel: (json['cerebrasModel'] as String?) ?? 'llama-3.3-70b',
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -211,6 +223,8 @@ class AppSettings extends HiveObject {
     String? gemmaLocalServerUrl,
     String? gemmaLocalModel,
     String? selectedLocalModel,
+    String? cerebrasApiKey,
+    String? cerebrasModel,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -240,6 +254,8 @@ class AppSettings extends HiveObject {
       gemmaLocalServerUrl: gemmaLocalServerUrl ?? this.gemmaLocalServerUrl,
       gemmaLocalModel: gemmaLocalModel ?? this.gemmaLocalModel,
       selectedLocalModel: selectedLocalModel ?? this.selectedLocalModel,
+      cerebrasApiKey: cerebrasApiKey ?? this.cerebrasApiKey,
+      cerebrasModel: cerebrasModel ?? this.cerebrasModel,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }
