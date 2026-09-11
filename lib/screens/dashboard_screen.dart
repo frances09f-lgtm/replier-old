@@ -56,17 +56,8 @@ class DashboardScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Master switch
-              Card(
-                child: SwitchListTile(
-                  title: const Text('Master Enable'),
-                  subtitle: const Text('Enable or disable auto-reply'),
-                  value: settings.masterEnabled,
-                  onChanged: (value) {
-                    ref.read(appSettingsProvider.notifier).toggleMasterEnabled();
-                  },
-                ),
-              ),
+              // Hero Engine Status Card
+              _buildHeroStatusCard(context, ref, settings),
 
               // Reply delay badge
               if (settings.masterEnabled) ...[
@@ -88,11 +79,22 @@ class DashboardScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Card(
                   color: Colors.amber.shade50,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: const BorderSide(color: Color(0xFFFCD34D)),
+                  ),
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     child: Row(
                       children: [
-                        Icon(Icons.shield, color: Colors.amber.shade700, size: 24),
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.shade100,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Icon(Icons.shield_outlined, color: Colors.amber.shade900, size: 22),
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Column(
@@ -102,14 +104,14 @@ class DashboardScreen extends ConsumerWidget {
                                 'Safety Mode: Confirm Before Reply',
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.amber.shade800,
+                                  color: Colors.amber.shade900,
                                 ),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 'You will be asked to approve each reply',
                                 style: TextStyle(
-                                  color: Colors.amber.shade600,
+                                  color: Colors.amber.shade800,
                                   fontSize: 12,
                                 ),
                               ),
@@ -127,29 +129,30 @@ class DashboardScreen extends ConsumerWidget {
               // Statistics section
               Text(
                 'Statistics',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
                     ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _buildStatsGrid(context, ref, stats),
               const SizedBox(height: 24),
-
-
 
               // Quick actions
               Text(
                 'Quick Actions',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
                     ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
               _NavigationCard(
                 title: 'Manage Rules',
                 subtitle: 'Create and edit auto-reply rules',
-                icon: Icons.rule,
+                icon: Icons.rule_rounded,
+                iconColor: const Color(0xFF4F46E5),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -157,12 +160,13 @@ class DashboardScreen extends ConsumerWidget {
                   );
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
               _NavigationCard(
                 title: 'View Logs',
                 subtitle: 'See all auto-reply history',
-                icon: Icons.history,
+                icon: Icons.history_toggle_off_rounded,
+                iconColor: const Color(0xFF0D9488),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -170,12 +174,13 @@ class DashboardScreen extends ConsumerWidget {
                   );
                 },
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
 
               _NavigationCard(
                 title: 'Settings',
                 subtitle: 'Configure app preferences',
-                icon: Icons.settings,
+                icon: Icons.settings_outlined,
+                iconColor: const Color(0xFF6366F1),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -480,6 +485,109 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildHeroStatusCard(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final isEnabled = settings.masterEnabled;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: isEnabled
+            ? const LinearGradient(
+                colors: [Color(0xFF059669), Color(0xFF10B981)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: isEnabled
+            ? null
+            : (isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0)),
+        boxShadow: isEnabled
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.3),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : [],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isEnabled ? Colors.white : Colors.red,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isEnabled ? 'ENGINE ACTIVE' : 'ENGINE PAUSED',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                          color: isEnabled
+                              ? Colors.white.withValues(alpha: 0.9)
+                              : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Auto-Reply Assistant',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: isEnabled
+                          ? Colors.white
+                          : (isDark ? Colors.white : Colors.black87),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    isEnabled
+                        ? 'Listening to notifications...'
+                        : 'Auto-reply is currently disabled',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isEnabled
+                          ? Colors.white.withValues(alpha: 0.8)
+                          : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Transform.scale(
+              scale: 1.1,
+              child: Switch.adaptive(
+                value: isEnabled,
+                thumbColor: WidgetStateProperty.all(Colors.white),
+                activeTrackColor: Colors.white.withValues(alpha: 0.3),
+                inactiveThumbColor: Colors.grey.shade400,
+                onChanged: (value) {
+                  ref.read(appSettingsProvider.notifier).toggleMasterEnabled();
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 
@@ -503,30 +611,43 @@ class _StatCard extends StatelessWidget {
     return Card(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(icon, color: color, size: 22),
+                  ),
+                  if (onTap != null)
+                    Icon(Icons.info_outline, size: 16, color: color.withValues(alpha: 0.5)),
+                ],
+              ),
+              const SizedBox(height: 14),
               Text(
                 value,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: color,
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(
                 label,
-                style: Theme.of(context).textTheme.bodySmall,
-                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
               ),
-              if (onTap != null) ...[
-                const SizedBox(height: 4),
-                Icon(Icons.info_outline, size: 14, color: color.withValues(alpha: 0.5)),
-              ],
             ],
           ),
         ),
@@ -539,24 +660,64 @@ class _NavigationCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
+  final Color iconColor;
   final VoidCallback onTap;
 
   const _NavigationCard({
     required this.title,
     required this.subtitle,
     required this.icon,
+    required this.iconColor,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: ListTile(
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: const Icon(Icons.chevron_right),
+      child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: iconColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 12,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

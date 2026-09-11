@@ -105,12 +105,14 @@ object ConversationTranscriptBuilder {
 
         // 1. Add history entries (already have role from store)
         for (msg in history) {
-            raw.add(msg)
+            val cleanedContent = cleanText(msg.content, senderName)
+            raw.add(msg.copy(content = cleanedContent))
         }
 
         // 2. Add current batch messages as "user" entries
         for (text in batchMessages) {
-            raw.add(ConversationHistory.ChatMessage(role = "user", content = text))
+            val cleanedContent = cleanText(text, senderName)
+            raw.add(ConversationHistory.ChatMessage(role = "user", content = cleanedContent))
         }
 
         // 3. Filter out artifacts
@@ -130,6 +132,20 @@ object ConversationTranscriptBuilder {
         Log.d(TAG, "After token cap (${maxTokens} tokens): ${capped.size} messages remain")
 
         return capped
+    }
+
+    /**
+     * Clean message content by stripping self prefixes ("You:", "Me:") or sender name prefixes.
+     */
+    fun cleanText(content: String, senderName: String): String {
+        var trimmed = content.trim()
+        val prefixesToStrip = listOf("you:", "me:", "you sent:", "${senderName.lowercase()}:")
+        for (prefix in prefixesToStrip) {
+            if (trimmed.lowercase().startsWith(prefix)) {
+                trimmed = trimmed.substring(prefix.length).trim()
+            }
+        }
+        return trimmed
     }
 
     // ── Internals ───────────────────────────────────────────────────────

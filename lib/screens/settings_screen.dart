@@ -367,35 +367,39 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 24),
 
           // Warning section
-          Card(
-            color: Colors.orange[50],
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.warning, color: Colors.orange[900]),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Important Notice',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange[900],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Automated replying to WhatsApp or Instagram may violate their Terms of Service. '
-                    'This app uses official Android notification APIs where possible. '
-                    'Use at your own risk and with caution.',
-                    style: TextStyle(color: Colors.orange[900], fontSize: 12),
-                  ),
-                ],
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBEB), // Amber-50
+              borderRadius: BorderRadius.circular(16),
+              border: const Border(
+                left: BorderSide(color: Color(0xFFF59E0B), width: 4),
               ),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 22),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Important Notice',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF92400E),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Automated replying to WhatsApp or Instagram may violate their Terms of Service. '
+                  'This app uses official Android notification APIs where possible. '
+                  'Use at your own risk and with caution.',
+                  style: TextStyle(color: Color(0xFFB45309), fontSize: 12, height: 1.4),
+                ),
+              ],
             ),
           ),
         ],

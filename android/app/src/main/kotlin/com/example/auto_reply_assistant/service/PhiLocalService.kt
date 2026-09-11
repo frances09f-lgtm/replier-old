@@ -264,14 +264,9 @@ class PhiLocalService private constructor(private val context: Context) {
                     return@execute
                 }
 
-                val combinedMessage = if (incomingMessages.size == 1) {
-                    "Message from $senderName: ${incomingMessages[0]}"
-                } else {
-                    val conv = incomingMessages.joinToString("\n") { it }
-                    "Messages from $senderName (read as one conversation):\n$conv"
-                }
+                val combinedMessage = incomingMessages.joinToString("\n") { it }
 
-                val prompt = buildPrompt(modelId, systemPrompt, conversationHistory, combinedMessage)
+                val prompt = buildPrompt(modelId, systemPrompt, conversationHistory, combinedMessage, senderName)
                 Log.d(TAG, "Running inference for $modelId (prompt: ${prompt.length} chars)")
 
                 val result = runBlocking {
@@ -291,7 +286,7 @@ class PhiLocalService private constructor(private val context: Context) {
                     val reply = result.text?.trim()
                     Log.d(TAG, "Raw inference result for $modelId: '${reply?.take(200) ?: "NULL"}'")
                     if (reply != null && reply.isNotBlank()) {
-                        val cleanReply = postProcess(reply)
+                        val cleanReply = postProcess(reply, senderName, combinedMessage)
                         Log.d(TAG, "Inference complete for $modelId: ${result.tokensPerSecond} tok/s")
                         if (cleanReply.isNotBlank()) {
                             callback(cleanReply, AiUsage(tokensUsed = prompt.length / 4 + cleanReply.length / 4))
@@ -311,29 +306,59 @@ class PhiLocalService private constructor(private val context: Context) {
         }
     }
 
+    private fun buildSystemPrompt(userSystemPrompt: String, senderName: String = "User"): String {
+        val effectiveSender = if (senderName.isBlank()) "the user" else senderName
+        val sb = StringBuilder()
+
+        sb.append("You are an AI assistant auto-replying to incoming messages from $effectiveSender on behalf of the app user.\n\n")
+
+        val trimmedUserPrompt = userSystemPrompt.trim()
+        if (trimmedUserPrompt.isNotBlank()) {
+            sb.append("User Guidelines & Persona:\n")
+            sb.append(trimmedUserPrompt)
+            sb.append("\n\n")
+        }
+
+        sb.append("Instructions:\n")
+        sb.append("- Reply directly to $effectiveSender in a natural, helpful, and friendly tone.\n")
+        sb.append("- Keep replies brief, conversational, and under 30 words.\n")
+        sb.append("- Do NOT repeat or echo $effectiveSender's message.\n")
+        sb.append("- Do NOT copy past assistant replies.\n")
+        sb.append("- Do NOT include role prefixes like 'Assistant:', 'AI:', or '$effectiveSender:'. Output ONLY the message reply text.")
+
+        return sb.toString()
+    }
+
     private fun buildPrompt(
         modelId: String,
         systemPrompt: String,
         history: List<ConversationHistory.ChatMessage>,
         incomingMessage: String,
+        senderName: String = "User"
     ): String {
         val sb = StringBuilder()
         
-        val optimizedSystemPrompt = if (systemPrompt.isNotBlank()) {
-            systemPrompt
-        } else {
-            "You are a helpful assistant. Reply naturally and briefly to messages. Keep responses conversational and under 30 words."
-        }
+        val optimizedSystemPrompt = buildSystemPrompt(systemPrompt, senderName)
         
         // Llama 3 Format
         sb.append("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$optimizedSystemPrompt<|eot_id|>\n")
         
         for (msg in history) {
             val role = if (msg.role == "user") "user" else "assistant"
-            sb.append("<|start_header_id|>$role<|end_header_id|>\n\n${msg.content}<|eot_id|>\n")
+            val content = if (msg.role == "user" && !msg.content.startsWith("$senderName:")) {
+                "$senderName: ${msg.content}"
+            } else {
+                msg.content
+            }
+            sb.append("<|start_header_id|>$role<|end_header_id|>\n\n$content<|eot_id|>\n")
         }
         
-        sb.append("<|start_header_id|>user<|end_header_id|>\n\n$incomingMessage<|eot_id|>\n")
+        val currentTurnContent = if (!incomingMessage.startsWith("$senderName:")) {
+            "$senderName: $incomingMessage"
+        } else {
+            incomingMessage
+        }
+        sb.append("<|start_header_id|>user<|end_header_id|>\n\n$currentTurnContent<|eot_id|>\n")
         sb.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
         
         val finalPrompt = sb.toString()
@@ -341,7 +366,7 @@ class PhiLocalService private constructor(private val context: Context) {
         return finalPrompt
     }
 
-    private fun postProcess(text: String): String {
+    private fun postProcess(text: String, senderName: String = "", incomingMessage: String = ""): String {
         Log.d(TAG, "postProcess input: '${text.take(200)}'")
         var result = text.trim()
         
@@ -358,21 +383,29 @@ class PhiLocalService private constructor(private val context: Context) {
             .replace("<eos>", "")
             .trim()
         
-        // Only remove role prefixes if they appear at the beginning
-        if (result.startsWith("Assistant:", ignoreCase = true)) {
-            result = result.removePrefix("Assistant:").trim()
+        // Remove role prefixes if present
+        val prefixesToRemove = listOf("Assistant:", "Human:", "User:", "$senderName:", "AI:")
+        for (prefix in prefixesToRemove) {
+            if (prefix.isNotBlank() && result.startsWith(prefix, ignoreCase = true)) {
+                result = result.substring(prefix.length).trim()
+            }
         }
-        if (result.startsWith("Human:", ignoreCase = true)) {
-            result = result.removePrefix("Human:").trim()
-        }
-        if (result.startsWith("User:", ignoreCase = true)) {
-            result = result.removePrefix("User:").trim()
+
+        // Remove enclosing quotes if the entire string is wrapped in quotes
+        if (result.startsWith("\"") && result.endsWith("\"") && result.length > 2) {
+            result = result.substring(1, result.length - 1).trim()
         }
             
+        // If the model echoed the incoming message directly, strip or discard it
+        if (incomingMessage.isNotBlank() && result.equals(incomingMessage.trim(), ignoreCase = true)) {
+            Log.w(TAG, "postProcess: AI echoed the user's incoming message directly. Falling back.")
+            return fallbackReplies.random()
+        }
+
         // If result is empty after filtering, return a fallback
         if (result.isBlank()) {
             Log.w(TAG, "postProcess result is empty after filtering. Original: '${text.take(100)}'")
-            return "Got it, thanks!"
+            return fallbackReplies.random()
         }
         
         // Take the first paragraph and limit length
@@ -457,9 +490,10 @@ class PhiLocalService private constructor(private val context: Context) {
                 val messagesArray = org.json.JSONArray()
 
                 // System message
+                val fullSystemPrompt = buildSystemPrompt(systemPrompt, senderName)
                 messagesArray.put(org.json.JSONObject().apply {
                     put("role", "system")
-                    put("content", systemPrompt)
+                    put("content", fullSystemPrompt)
                 })
 
                 // Conversation history
@@ -515,8 +549,9 @@ class PhiLocalService private constructor(private val context: Context) {
                 val tokensUsed = usage?.optInt("total_tokens", 0) ?: 0
 
                 if (!reply.isNullOrBlank()) {
-                    Log.d(TAG, "Cerebras reply: '${reply.take(100)}'")
-                    callback(reply, AiUsage(tokensUsed = tokensUsed))
+                    val cleanReply = postProcess(reply, senderName, incomingMessages.lastOrNull() ?: "")
+                    Log.d(TAG, "Cerebras reply: '${cleanReply.take(100)}'")
+                    callback(cleanReply, AiUsage(tokensUsed = tokensUsed))
                 } else {
                     Log.e(TAG, "Cerebras returned empty content")
                     callback(fallbackReplies.random(), AiUsage(error = "Empty response from Cerebras"))

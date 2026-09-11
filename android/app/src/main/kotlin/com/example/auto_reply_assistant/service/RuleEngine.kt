@@ -208,11 +208,25 @@ class RuleEngine(private val context: Context) {
 
     /** Check if a message was sent by this app (self-reply guard) */
     fun isSelfSentMessage(message: String): Boolean {
-        val lower = message.trim().lowercase()
+        var lower = message.trim().lowercase()
+
+        // Strip common self-reply prefixes from notification updates (e.g., "You: Hello", "Me: Thanks")
+        val selfPrefixes = listOf("you:", "me:", "you sent:")
+        for (prefix in selfPrefixes) {
+            if (lower.startsWith(prefix)) {
+                lower = lower.removePrefix(prefix).trim()
+            }
+        }
+
+        if (lower.isBlank()) return true
+
         // Check against all sent replies (including AI-generated)
-        if (lower in sentReplyTexts) {
-            Log.d(TAG, "isSelfSentMessage: matched previously sent reply text")
-            return true
+        for (sentText in sentReplyTexts) {
+            if (sentText.isBlank()) continue
+            if (lower == sentText || lower.endsWith(sentText) || sentText.endsWith(lower) || (sentText.length >= 5 && lower.contains(sentText))) {
+                Log.d(TAG, "isSelfSentMessage: matched previously sent reply text ('$sentText' in '$message')")
+                return true
+            }
         }
         return false
     }
