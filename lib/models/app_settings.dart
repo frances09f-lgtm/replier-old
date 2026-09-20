@@ -1,5 +1,7 @@
 import 'package:hive/hive.dart';
 
+import '../utils/cloud_ai_model.dart';
+
 part 'app_settings.g.dart';
 
 /// Model for app settings
@@ -93,6 +95,37 @@ class AppSettings extends HiveObject {
   @HiveField(35)
   String cerebrasModel;
 
+  @HiveField(37)
+  String groqApiKey;
+
+  @HiveField(38)
+  String groqModel;
+
+  @HiveField(39)
+  String geminiApiKey;
+
+  @HiveField(40)
+  String geminiModel;
+
+  @HiveField(36)
+  List<String> trainingExamplesRaw;
+
+  /// Daily reply limits per AI engine (0 = unlimited)
+  @HiveField(41)
+  int cerebrasReplyLimit;
+
+  @HiveField(42)
+  int groqReplyLimit;
+
+  @HiveField(43)
+  int geminiReplyLimit;
+
+  @HiveField(44)
+  int localReplyLimit;
+
+  @HiveField(45)
+  bool fallbackToLocalModel;
+
   AppSettings({
     this.masterEnabled = true,
     this.whatsappEnabled = true,
@@ -104,7 +137,7 @@ class AppSettings extends HiveObject {
     this.darkMode = false,
     this.aiReplyEnabled = false,
     this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
-    this.aiModelType = 'phi_local',
+    this.aiModelType = 'cerebras_api',
     this.scheduleEnabled = false,
     this.scheduleStartHour = 8,
     this.scheduleStartMinute = 0,
@@ -122,8 +155,44 @@ class AppSettings extends HiveObject {
     this.selectedLocalModel = 'llama_3_2_1b',
     this.cerebrasApiKey = '',
     this.cerebrasModel = 'llama-3.3-70b',
+    this.groqApiKey = '',
+    this.groqModel = 'openai/gpt-oss-20b',
+    this.geminiApiKey = '',
+    this.geminiModel = 'gemini-3.6-flash',
+    this.trainingExamplesRaw = const [],
+    this.cerebrasReplyLimit = 0,
+    this.groqReplyLimit = 0,
+    this.geminiReplyLimit = 0,
+    this.localReplyLimit = 0,
+    this.fallbackToLocalModel = true,
     required this.lastUpdated,
   });
+
+  /// Get parsed training examples as List of maps
+  List<Map<String, String>> get trainingExamples {
+    return trainingExamplesRaw.map((e) {
+      final parts = e.split(':::');
+      return {
+        'id': parts.isNotEmpty ? parts[0] : '',
+        'userMessage': parts.length > 1 ? parts[1] : '',
+        'correctedReply': parts.length > 2 ? parts[2] : '',
+      };
+    }).toList();
+  }
+
+  /// Format training examples into few-shot prompt for AI system instructions
+  String formatTrainingPrompt() {
+    final examples = trainingExamples;
+    if (examples.isEmpty) return '';
+
+    final sb = StringBuffer('\n\n--- LEARNED RESPONSE PATTERNS (CRITICAL) ---\n');
+    sb.writeln('When replying, follow these exact examples of how the user expects replies to look:');
+    for (final ex in examples) {
+      sb.writeln('Incoming: "${ex['userMessage']}" -> Reply: "${ex['correctedReply']}"');
+    }
+    sb.writeln('Adopt this tone and concise style strictly.');
+    return sb.toString();
+  }
 
   /// Convert to JSON
   Map<String, dynamic> toJson() {
@@ -156,6 +225,16 @@ class AppSettings extends HiveObject {
       'selectedLocalModel': selectedLocalModel,
       'cerebrasApiKey': cerebrasApiKey,
       'cerebrasModel': cerebrasModel,
+      'groqApiKey': groqApiKey,
+      'groqModel': groqModel,
+      'geminiApiKey': geminiApiKey,
+      'geminiModel': geminiModel,
+      'trainingExamplesRaw': trainingExamplesRaw,
+      'cerebrasReplyLimit': cerebrasReplyLimit,
+      'groqReplyLimit': groqReplyLimit,
+      'geminiReplyLimit': geminiReplyLimit,
+      'localReplyLimit': localReplyLimit,
+      'fallbackToLocalModel': fallbackToLocalModel,
       'lastUpdated': lastUpdated.toIso8601String(),
     };
   }
@@ -172,7 +251,7 @@ class AppSettings extends HiveObject {
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
       aiReplyEnabled: json['aiReplyEnabled'] ?? false,
-      aiModelType: (json['aiModelType'] as String?) ?? 'phi_local',
+      aiModelType: (json['aiModelType'] as String?) ?? 'cerebras_api',
       aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
       scheduleEnabled: json['scheduleEnabled'] ?? false,
       scheduleStartHour: json['scheduleStartHour'] ?? 8,
@@ -191,6 +270,16 @@ class AppSettings extends HiveObject {
       selectedLocalModel: (json['selectedLocalModel'] as String?) ?? 'llama_3_2_1b',
       cerebrasApiKey: (json['cerebrasApiKey'] as String?) ?? '',
       cerebrasModel: (json['cerebrasModel'] as String?) ?? 'llama-3.3-70b',
+      groqApiKey: (json['groqApiKey'] as String?) ?? '',
+      groqModel: CloudAiModel.normalizeGroqModel(json['groqModel'] as String?),
+      geminiApiKey: (json['geminiApiKey'] as String?) ?? '',
+      geminiModel: CloudAiModel.normalizeGeminiModel(json['geminiModel'] as String?),
+      trainingExamplesRaw: (json['trainingExamplesRaw'] as List?)?.cast<String>() ?? [],
+      cerebrasReplyLimit: (json['cerebrasReplyLimit'] as num?)?.toInt() ?? 0,
+      groqReplyLimit: (json['groqReplyLimit'] as num?)?.toInt() ?? 0,
+      geminiReplyLimit: (json['geminiReplyLimit'] as num?)?.toInt() ?? 0,
+      localReplyLimit: (json['localReplyLimit'] as num?)?.toInt() ?? 0,
+      fallbackToLocalModel: json['fallbackToLocalModel'] ?? true,
       lastUpdated: DateTime.parse(json['lastUpdated']),
     );
   }
@@ -225,6 +314,16 @@ class AppSettings extends HiveObject {
     String? selectedLocalModel,
     String? cerebrasApiKey,
     String? cerebrasModel,
+    String? groqApiKey,
+    String? groqModel,
+    String? geminiApiKey,
+    String? geminiModel,
+    List<String>? trainingExamplesRaw,
+    int? cerebrasReplyLimit,
+    int? groqReplyLimit,
+    int? geminiReplyLimit,
+    int? localReplyLimit,
+    bool? fallbackToLocalModel,
     DateTime? lastUpdated,
   }) {
     return AppSettings(
@@ -256,6 +355,16 @@ class AppSettings extends HiveObject {
       selectedLocalModel: selectedLocalModel ?? this.selectedLocalModel,
       cerebrasApiKey: cerebrasApiKey ?? this.cerebrasApiKey,
       cerebrasModel: cerebrasModel ?? this.cerebrasModel,
+      groqApiKey: groqApiKey ?? this.groqApiKey,
+      groqModel: groqModel ?? this.groqModel,
+      geminiApiKey: geminiApiKey ?? this.geminiApiKey,
+      geminiModel: geminiModel ?? this.geminiModel,
+      trainingExamplesRaw: trainingExamplesRaw ?? this.trainingExamplesRaw,
+      cerebrasReplyLimit: cerebrasReplyLimit ?? this.cerebrasReplyLimit,
+      groqReplyLimit: groqReplyLimit ?? this.groqReplyLimit,
+      geminiReplyLimit: geminiReplyLimit ?? this.geminiReplyLimit,
+      localReplyLimit: localReplyLimit ?? this.localReplyLimit,
+      fallbackToLocalModel: fallbackToLocalModel ?? this.fallbackToLocalModel,
       lastUpdated: lastUpdated ?? this.lastUpdated,
     );
   }

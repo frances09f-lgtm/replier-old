@@ -5,7 +5,10 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import kotlin.random.Random
 
 /**
@@ -39,6 +42,7 @@ class RuleEngine(private val context: Context) {
 
         private const val RULES_FILE = "auto_reply_rules.json"
         private const val SETTINGS_FILE = "auto_reply_settings.json"
+        private const val KEY_AI_PROVIDER_STATS = "ai_provider_stats_json"
     }
 
     private val prefs get() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -158,24 +162,25 @@ class RuleEngine(private val context: Context) {
         }
     }
 
+    /** Whether rules or AI auto-reply may run for this sender (contact filter). */
+    fun isSenderAllowedForAutoReply(sender: String?): Boolean {
+        if (sender.isNullOrBlank()) return true
+        val allowed = ContactIdentifier.isSenderAllowedForAutoReply(
+            sender = sender,
+            whitelistEnabled = isContactWhitelistEnabled(),
+            whitelist = getContactWhitelist(),
+            blacklist = getContactBlacklist(),
+        )
+        if (!allowed) {
+            Log.d(TAG, "isSenderAllowedForAutoReply: blocked sender '$sender'")
+        }
+        return allowed
+    }
+
     /** Find the first matching rule for a given message and sender */
     fun findMatchingRule(message: String, sender: String? = null): Rule? {
-        // Blacklist check: skip if sender is blacklisted
-        if (sender != null) {
-            val blacklist = getContactBlacklist()
-            if (blacklist.any { it.equals(sender, ignoreCase = true) }) {
-                Log.d(TAG, "findMatchingRule: sender '$sender' is blacklisted")
-                return null
-            }
-        }
-
-        // Whitelist check: if enabled, sender must be in the whitelist
-        if (sender != null && isContactWhitelistEnabled()) {
-            val whitelist = getContactWhitelist()
-            if (whitelist.isNotEmpty() && !whitelist.any { it.equals(sender, ignoreCase = true) }) {
-                Log.d(TAG, "findMatchingRule: sender '$sender' not in whitelist")
-                return null
-            }
+        if (sender != null && !isSenderAllowedForAutoReply(sender)) {
+            return null
         }
 
         val rules = getEnabledRules()
@@ -207,28 +212,12 @@ class RuleEngine(private val context: Context) {
     }
 
     /** Check if a message was sent by this app (self-reply guard) */
-    fun isSelfSentMessage(message: String): Boolean {
-        var lower = message.trim().lowercase()
-
-        // Strip common self-reply prefixes from notification updates (e.g., "You: Hello", "Me: Thanks")
-        val selfPrefixes = listOf("you:", "me:", "you sent:")
-        for (prefix in selfPrefixes) {
-            if (lower.startsWith(prefix)) {
-                lower = lower.removePrefix(prefix).trim()
-            }
+    fun isSelfSentMessage(message: String, sender: String = ""): Boolean {
+        val isSelf = SelfSentReplyGuard.isSelfSentMessage(message, sender, sentReplyTexts)
+        if (isSelf) {
+            Log.d(TAG, "isSelfSentMessage: sender='$sender' message='$message'")
         }
-
-        if (lower.isBlank()) return true
-
-        // Check against all sent replies (including AI-generated)
-        for (sentText in sentReplyTexts) {
-            if (sentText.isBlank()) continue
-            if (lower == sentText || lower.endsWith(sentText) || sentText.endsWith(lower) || (sentText.length >= 5 && lower.contains(sentText))) {
-                Log.d(TAG, "isSelfSentMessage: matched previously sent reply text ('$sentText' in '$message')")
-                return true
-            }
-        }
-        return false
+        return isSelf
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -279,14 +268,14 @@ class RuleEngine(private val context: Context) {
             val json = readSettingsJson()
             if (json != "{}") {
                 val obj = JSONObject(json)
-                minSec = maxOf(obj.optInt("minReplyDelaySeconds", 1), 1)
-                maxSec = maxOf(obj.optInt("maxReplyDelaySeconds", 10), 1)
+                minSec = maxOf(obj.optInt("minReplyDelaySeconds", 0), 0)
+                maxSec = maxOf(obj.optInt("maxReplyDelaySeconds", 10), minSec)
                 val delay = if (minSec >= maxSec) minSec else Random.nextInt(minSec, maxSec + 1)
                 return delay * 1000L
             }
         } catch (_: Exception) {}
-        val fallbackMin = maxOf(prefs.getInt(KEY_MIN_REPLY_DELAY_SECONDS, 1), 1)
-        val fallbackMax = maxOf(prefs.getInt(KEY_MAX_REPLY_DELAY_SECONDS, 10), 1)
+        val fallbackMin = maxOf(prefs.getInt(KEY_MIN_REPLY_DELAY_SECONDS, 0), 0)
+        val fallbackMax = maxOf(prefs.getInt(KEY_MAX_REPLY_DELAY_SECONDS, 10), fallbackMin)
         val delay = if (fallbackMin >= fallbackMax) fallbackMin else Random.nextInt(fallbackMin, fallbackMax + 1)
         return delay * 1000L
     }
@@ -385,12 +374,80 @@ class RuleEngine(private val context: Context) {
         return prefs.getBoolean("ai_reply_enabled", false)
     }
 
+    fun isFallbackToLocalEnabled(): Boolean {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optBoolean("fallbackToLocalModel", true)
+        } catch (_: Exception) {}
+        return prefs.getBoolean("fallback_to_local_model", true)
+    }
+
     fun getAiModelType(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("aiModelType", "deepseek_local")
+            if (json != "{}") return JSONObject(json).optString("aiModelType", "cerebras_api")
         } catch (_: Exception) {}
-        return prefs.getString("ai_model_type", "deepseek_local") ?: "deepseek_local"
+        return prefs.getString("ai_model_type", "cerebras_api") ?: "cerebras_api"
+    }
+
+    fun getCerebrasApiKey(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("cerebrasApiKey", "")
+        } catch (_: Exception) {}
+        return prefs.getString("cerebras_api_key", "") ?: ""
+    }
+
+    fun getCerebrasModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("cerebrasModel", "llama-3.3-70b")
+        } catch (_: Exception) {}
+        return prefs.getString("cerebras_model", "llama-3.3-70b") ?: "llama-3.3-70b"
+    }
+
+    fun getGroqApiKey(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("groqApiKey", "")
+        } catch (_: Exception) {}
+        return prefs.getString("groq_api_key", "") ?: ""
+    }
+
+    fun getGroqModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                return CloudAiModel.normalizeGroqModel(
+                    JSONObject(json).optString("groqModel", CloudAiModel.DEFAULT_GROQ_MODEL)
+                )
+            }
+        } catch (_: Exception) {}
+        return CloudAiModel.normalizeGroqModel(
+            prefs.getString("groq_model", CloudAiModel.DEFAULT_GROQ_MODEL)
+        )
+    }
+
+    fun getGeminiApiKey(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") return JSONObject(json).optString("geminiApiKey", "")
+        } catch (_: Exception) {}
+        return prefs.getString("gemini_api_key", "") ?: ""
+    }
+
+    fun getGeminiModel(): String {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                return CloudAiModel.normalizeGeminiModel(
+                    JSONObject(json).optString("geminiModel", CloudAiModel.DEFAULT_GEMINI_MODEL)
+                )
+            }
+        } catch (_: Exception) {}
+        return CloudAiModel.normalizeGeminiModel(
+            prefs.getString("gemini_model", CloudAiModel.DEFAULT_GEMINI_MODEL)
+        )
     }
 
     fun getDeepSeekServerUrl(): String {
@@ -415,22 +472,6 @@ class RuleEngine(private val context: Context) {
             if (json != "{}") return JSONObject(json).optString("selectedLocalModel", "llama_3_2_1b")
         } catch (_: Exception) {}
         return prefs.getString("selected_local_model", "llama_3_2_1b") ?: "llama_3_2_1b"
-    }
-
-    fun getCerebrasApiKey(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("cerebrasApiKey", "")
-        } catch (_: Exception) {}
-        return prefs.getString("cerebras_api_key", "") ?: ""
-    }
-
-    fun getCerebrasModel(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("cerebrasModel", "llama-3.3-70b")
-        } catch (_: Exception) {}
-        return prefs.getString("cerebras_model", "llama-3.3-70b") ?: "llama-3.3-70b"
     }
 
     // ── Busy Mode ─────────────────────────────────────────────────────────
@@ -471,7 +512,17 @@ class RuleEngine(private val context: Context) {
 
     // ── AI Usage tracking ────────────────────────────────────────────────────
 
-    fun saveAiUsage(tokensUsed: Int, tokensRemaining: Int, tokensLimit: Int, resetInSeconds: Int, error: String?) {
+    fun saveAiUsage(
+        provider: String,
+        tokensUsed: Int,
+        tokensRemaining: Int,
+        tokensLimit: Int,
+        resetInSeconds: Int,
+        error: String?,
+        requestsRemaining: Int? = null,
+        requestsLimit: Int? = null,
+        isLimitReached: Boolean = false,
+    ) {
         prefs.edit()
             .putInt("ai_tokens_used", tokensUsed)
             .putInt("ai_tokens_remaining", tokensRemaining)
@@ -480,7 +531,72 @@ class RuleEngine(private val context: Context) {
             .putString("ai_usage_error", error ?: "")
             .putLong("ai_usage_timestamp", System.currentTimeMillis())
             .apply()
-        Log.d(TAG, "saveAiUsage: used=$tokensUsed, remaining=$tokensRemaining, limit=$tokensLimit")
+        if (provider.isNotBlank()) {
+            recordProviderUsage(
+                provider = provider,
+                tokensUsed = tokensUsed,
+                requestsRemaining = requestsRemaining,
+                requestsLimit = requestsLimit,
+                isLimitReached = isLimitReached,
+                resetInSeconds = resetInSeconds,
+                error = error,
+            )
+        }
+        Log.d(TAG, "saveAiUsage: provider=$provider used=$tokensUsed, remaining=$tokensRemaining, limit=$tokensLimit, reqRemaining=$requestsRemaining, reqLimit=$requestsLimit, isLimitReached=$isLimitReached")
+    }
+
+    private fun recordProviderUsage(
+        provider: String,
+        tokensUsed: Int,
+        requestsRemaining: Int? = null,
+        requestsLimit: Int? = null,
+        isLimitReached: Boolean = false,
+        resetInSeconds: Int = 0,
+        error: String? = null,
+    ) {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val all = try {
+            JSONObject(prefs.getString(KEY_AI_PROVIDER_STATS, "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val providerStats = all.optJSONObject(provider) ?: JSONObject()
+        if (providerStats.optString("date") != today) {
+            providerStats.put("date", today)
+            providerStats.put("requestsToday", 0)
+            providerStats.put("tokensToday", 0)
+            providerStats.put("isLimitReached", false)
+            providerStats.remove("requestsRemaining")
+            providerStats.remove("lastError")
+        }
+        if (tokensUsed > 0) {
+            providerStats.put("requestsToday", providerStats.optInt("requestsToday", 0) + 1)
+            providerStats.put("tokensToday", providerStats.optInt("tokensToday", 0) + tokensUsed)
+        }
+        if (requestsLimit != null && requestsLimit > 0) {
+            providerStats.put("requestsLimit", requestsLimit)
+        }
+        if (requestsRemaining != null) {
+            providerStats.put("requestsRemaining", requestsRemaining)
+        }
+        if (isLimitReached) {
+            providerStats.put("isLimitReached", true)
+            if (requestsRemaining == null) {
+                providerStats.put("requestsRemaining", 0)
+            }
+        } else if (requestsRemaining != null && requestsRemaining > 0) {
+            providerStats.put("isLimitReached", false)
+        }
+        if (resetInSeconds > 0) {
+            providerStats.put("limitResetTimestamp", System.currentTimeMillis() + (resetInSeconds * 1000L))
+        }
+        if (!error.isNullOrBlank()) {
+            providerStats.put("lastError", error)
+        } else if (tokensUsed > 0 && !isLimitReached) {
+            providerStats.remove("lastError")
+        }
+        all.put(provider, providerStats)
+        prefs.edit().putString(KEY_AI_PROVIDER_STATS, all.toString()).apply()
     }
 
     fun getAiUsage(): Map<String, Any> {
@@ -490,8 +606,90 @@ class RuleEngine(private val context: Context) {
             "tokensLimit" to prefs.getInt("ai_tokens_limit", 0),
             "resetInSeconds" to prefs.getInt("ai_reset_seconds", 0),
             "error" to (prefs.getString("ai_usage_error", "") ?: ""),
-            "timestamp" to prefs.getLong("ai_usage_timestamp", 0).toInt()
+            "timestamp" to prefs.getLong("ai_usage_timestamp", 0).toInt(),
+            "providerStats" to getAiProviderStats(),
         )
+    }
+
+    fun getAiProviderStats(): Map<String, Map<String, Any>> {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val now = System.currentTimeMillis()
+        val result = mutableMapOf<String, Map<String, Any>>()
+        val all = try {
+            JSONObject(prefs.getString(KEY_AI_PROVIDER_STATS, "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        for (key in all.keys()) {
+            val provider = key ?: continue
+            val obj = all.optJSONObject(provider) ?: continue
+            if (obj.optString("date") != today) {
+                result[provider] = mapOf(
+                    "requestsToday" to 0,
+                    "tokensToday" to 0,
+                    "requestsLimit" to obj.optInt("requestsLimit", 0),
+                    "requestsRemaining" to -1,
+                    "isLimitReached" to false,
+                    "limitResetTimestamp" to 0L,
+                    "lastError" to "",
+                )
+            } else {
+                val resetTs = obj.optLong("limitResetTimestamp", 0L)
+                val isExpired = resetTs in 1..now
+                val limitReached = if (isExpired) false else obj.optBoolean("isLimitReached", false)
+                val remaining = if (limitReached) 0 else if (obj.has("requestsRemaining")) obj.optInt("requestsRemaining") else -1
+                result[provider] = mapOf(
+                    "requestsToday" to obj.optInt("requestsToday", 0),
+                    "tokensToday" to obj.optInt("tokensToday", 0),
+                    "requestsLimit" to obj.optInt("requestsLimit", 0),
+                    "requestsRemaining" to remaining,
+                    "isLimitReached" to limitReached,
+                    "limitResetTimestamp" to resetTs,
+                    "lastError" to obj.optString("lastError", ""),
+                )
+            }
+        }
+        return result
+    }
+
+    fun isAiLimitReached(engineType: String): Boolean {
+        val customLimit = getAiReplyLimit(engineType)
+        val stats = getAiProviderStats()[engineType]
+        val requestsToday = (stats?.get("requestsToday") as? Number)?.toInt() ?: 0
+
+        // 1. Check user-configured limit
+        if (customLimit > 0 && requestsToday >= customLimit) {
+            return true
+        }
+
+        // 2. Check live quota limit from API
+        val isLimitReached = (stats?.get("isLimitReached") as? Boolean) == true
+        if (isLimitReached) return true
+
+        val remaining = (stats?.get("requestsRemaining") as? Number)?.toInt()
+        if (remaining != null && remaining == 0) return true
+
+        val requestsLimit = (stats?.get("requestsLimit") as? Number)?.toInt() ?: 0
+        if (requestsLimit > 0 && requestsToday >= requestsLimit) return true
+
+        return false
+    }
+
+    fun getAiReplyLimit(engineType: String): Int {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                val obj = JSONObject(json)
+                return when (engineType) {
+                    "cerebras_api" -> obj.optInt("cerebrasReplyLimit", 0)
+                    "groq_api" -> obj.optInt("groqReplyLimit", 0)
+                    "gemini_api" -> obj.optInt("geminiReplyLimit", 0)
+                    "phi_local", "deepseek_local" -> obj.optInt("localReplyLimit", 0)
+                    else -> 0
+                }
+            }
+        } catch (_: Exception) {}
+        return 0
     }
 
     // ── Duplicate tracking (in-memory, resets on service restart) ────────────
@@ -551,7 +749,22 @@ class RuleEngine(private val context: Context) {
                 .putInt(KEY_MAX_REPLY_DELAY_SECONDS, obj.optInt("maxReplyDelaySeconds", 10))
                 .putBoolean(KEY_PREVENT_DUPLICATES, obj.optBoolean("preventDuplicateReplies", true))
                 .putBoolean("ai_reply_enabled", obj.optBoolean("aiReplyEnabled", false))
-                .putString("ai_model_type", obj.optString("aiModelType", "deepseek_local"))
+                .putBoolean("fallback_to_local_model", obj.optBoolean("fallbackToLocalModel", true))
+                .putString("ai_model_type", obj.optString("aiModelType", "cerebras_api"))
+                .putString("cerebras_api_key", obj.optString("cerebrasApiKey", ""))
+                .putString("cerebras_model", obj.optString("cerebrasModel", "llama-3.3-70b"))
+                .putString("groq_api_key", obj.optString("groqApiKey", ""))
+                .putString(
+                    "groq_model",
+                    CloudAiModel.normalizeGroqModel(obj.optString("groqModel", CloudAiModel.DEFAULT_GROQ_MODEL))
+                )
+                .putString("gemini_api_key", obj.optString("geminiApiKey", ""))
+                .putString(
+                    "gemini_model",
+                    CloudAiModel.normalizeGeminiModel(
+                        obj.optString("geminiModel", CloudAiModel.DEFAULT_GEMINI_MODEL)
+                    )
+                )
                 .putString("ai_system_prompt", obj.optString("aiSystemPrompt",
                     "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational."))
                 .putBoolean("schedule_enabled", obj.optBoolean("scheduleEnabled", false))
@@ -564,13 +777,11 @@ class RuleEngine(private val context: Context) {
                 .putString("busy_reply_text", obj.optString("busyReplyText", ""))
                 .putLong("busy_until_timestamp", obj.optLong("busyUntilTimestamp", 0))
                 .putString("gemma_local_server_url", obj.optString("gemmaLocalServerUrl", ""))
-                .putString("gemma_local_model", obj.optString("gemmaLocalModel", "deepseek_1_5b"))
-                .putString("selected_local_model", obj.optString("selectedLocalModel", "gemma_270m"))
+                .putString("gemma_local_model", obj.optString("gemmaLocalModel", "llama_3_2_1b"))
+                .putString("selected_local_model", obj.optString("selectedLocalModel", "llama_3_2_1b"))
                 .putBoolean(KEY_CONTACT_WHITELIST_ENABLED, obj.optBoolean("contactWhitelistEnabled", false))
                 .putString(KEY_CONTACT_WHITELIST, obj.optString("contactWhitelist", "[]"))
                 .putString(KEY_CONTACT_BLACKLIST, obj.optString("contactBlacklist", "[]"))
-                .putString("cerebras_api_key", obj.optString("cerebrasApiKey", ""))
-                .putString("cerebras_model", obj.optString("cerebrasModel", "llama-3.3-70b"))
                 .commit()
             Log.d(TAG, "saveSettings: saved to file + prefs")
         } catch (e: Exception) {

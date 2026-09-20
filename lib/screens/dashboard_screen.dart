@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/app_settings.dart';
@@ -6,11 +7,15 @@ import '../providers/statistics_provider.dart';
 import '../providers/log_provider.dart';
 import '../providers/rule_provider.dart';
 import '../providers/reply_countdown_provider.dart';
+import '../providers/ai_usage_provider.dart';
+import '../utils/ai_engine_display.dart';
 import '../widgets/pipeline_status_card.dart';
 import 'rules_screen.dart';
 import 'logs_screen.dart';
 import 'settings_screen.dart';
 import 'chat_screen.dart';
+import 'notes_screen.dart';
+import '../providers/note_provider.dart';
 
 /// Dashboard screen with master switch and quick-action navigation
 class DashboardScreen extends ConsumerWidget {
@@ -50,6 +55,7 @@ class DashboardScreen extends ConsumerWidget {
         onRefresh: () async {
           ref.read(logsProvider.notifier).refreshLogs();
           ref.read(rulesProvider.notifier).refreshRules();
+          await ref.read(aiUsageProvider.notifier).loadUsage();
         },
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
@@ -136,6 +142,8 @@ class DashboardScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 12),
               _buildStatsGrid(context, ref, stats),
+              const SizedBox(height: 16),
+              _buildAiUsageSection(context, ref),
               const SizedBox(height: 24),
 
               // Quick actions
@@ -145,6 +153,20 @@ class DashboardScreen extends ConsumerWidget {
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.5,
                     ),
+              ),
+              const SizedBox(height: 12),
+
+              _NavigationCard(
+                title: 'Notes & Reminders',
+                subtitle: 'View meetings and captured notes',
+                icon: Icons.event_note_rounded,
+                iconColor: const Color(0xFF9333EA),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const NotesScreen()),
+                  );
+                },
               ),
               const SizedBox(height: 12),
 
@@ -196,9 +218,254 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  // Known realistic free-tier daily limits per engine (used as defaults when not reported by API)
+  static const Map<String, int> _freeTierLimits = {
+    'cerebras_api': 1000, // ~1M tokens/day & 30 RPM
+    'groq_api': 1000,     // Modern Groq free-tier limit for 20B/70B models
+    'gemini_api': 500,    // Google AI Studio Gemini 2.0/2.5 Flash free-tier cap
+    'phi_local': 0,       // unlimited – on-device execution
+    'deepseek_local': 0,  // unlimited – local execution
+  };
+
+  Widget _buildAiUsageSection(BuildContext context, WidgetRef ref) {
+    ref.watch(logsProvider);
+    final aiUsage = ref.watch(aiUsageProvider);
+    final settings = ref.watch(appSettingsProvider);
+    final replyCounts = ref.read(logRepositoryProvider).getAiReplyCounts();
+    final engineIds = {
+      ...AiEngineDisplay.allEngineIds,
+      ...replyCounts.keys,
+      ...aiUsage.providerStats.keys,
+    }.toList()
+      ..sort();
+
+    // Use user-configured limit if set (> 0), otherwise live API reported limit, otherwise realistic free-tier default
+    int limitFor(String engineId, AiProviderUsage? tokenStats) {
+      final custom = switch (engineId) {
+        'cerebras_api' => settings.cerebrasReplyLimit,
+        'groq_api' => settings.groqReplyLimit,
+        'gemini_api' => settings.geminiReplyLimit,
+        'phi_local' || 'deepseek_local' => settings.localReplyLimit,
+        _ => 0,
+      };
+      if (custom > 0) return custom;
+      if (tokenStats != null && tokenStats.requestsLimit > 0) {
+        return tokenStats.requestsLimit;
+      }
+      return _freeTierLimits[engineId] ?? 0;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'AI Usage Today',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Column(
+              children: [
+                for (var i = 0; i < engineIds.length; i++) ...[
+                  if (i > 0) const Divider(height: 1, indent: 56),
+                  _buildAiUsageRow(
+                    context,
+                    engineIds[i],
+                    replyCounts[engineIds[i]] ?? 0,
+                    aiUsage.providerStats[engineIds[i]],
+                    limitFor(engineIds[i], aiUsage.providerStats[engineIds[i]]),
+                    isCustomLimit: switch (engineIds[i]) {
+                      'cerebras_api' => settings.cerebrasReplyLimit > 0,
+                      'groq_api' => settings.groqReplyLimit > 0,
+                      'gemini_api' => settings.geminiReplyLimit > 0,
+                      'phi_local' || 'deepseek_local' => settings.localReplyLimit > 0,
+                      _ => false,
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAiUsageRow(
+    BuildContext context,
+    String engineId,
+    int repliesToday,
+    AiProviderUsage? tokenStats,
+    int dailyLimit, {
+    bool isCustomLimit = false,
+  }) {
+    final display = AiEngineDisplay.forEngine(engineId);
+    final tokensToday = tokenStats?.tokensToday ?? 0;
+    final apiRequests = tokenStats?.requestsToday ?? 0;
+
+    final hasLimit = dailyLimit > 0;
+
+    // Real limit reached check:
+    // 1. Explicitly marked as limit reached by native (e.g. 429 HTTP error or quota exhausted)
+    // 2. API header returned 0 remaining requests
+    // 3. Local count has reached or exceeded the daily limit
+    final bool isAtLimit = (tokenStats?.isLimitReached == true) ||
+        (tokenStats?.requestsRemaining != null && tokenStats!.requestsRemaining! <= 0) ||
+        (hasLimit && repliesToday >= dailyLimit);
+
+    // Compute remaining replies accurately:
+    final int remainingReplies = isAtLimit
+        ? 0
+        : (tokenStats?.requestsRemaining != null
+            ? tokenStats!.requestsRemaining!
+            : (hasLimit ? math.max(0, dailyLimit - repliesToday) : 0));
+
+    final usagePercent = isAtLimit
+        ? 1.0
+        : (hasLimit
+            ? ((dailyLimit - remainingReplies) / dailyLimit).clamp(0.0, 1.0)
+            : 0.0);
+
+    final isNearLimit = !isAtLimit && hasLimit && usagePercent >= 0.8;
+
+    final limitColor = isAtLimit
+        ? Colors.red
+        : isNearLimit
+            ? Colors.orange
+            : display.color;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ListTile(
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: display.color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(display.icon, color: display.color, size: 22),
+            ),
+            title: Text(
+              display.label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(
+              tokensToday > 0
+                  ? '$repliesToday replies · ~$tokensToday tokens · $apiRequests API calls'
+                  : '$repliesToday replies today',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            trailing: hasLimit
+                ? Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '$repliesToday',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: limitColor,
+                            ),
+                      ),
+                      Text(
+                        '/ $dailyLimit',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              fontSize: 11,
+                            ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    repliesToday.toString(),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: display.color,
+                        ),
+                  ),
+          ),
+          // Progress bar — always shown when a limit exists
+          if (hasLimit)
+            Padding(
+              padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Label row: left = status text, right = percentage
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          isAtLimit
+                              ? (tokenStats != null &&
+                                      tokenStats.lastError.isNotEmpty &&
+                                      (tokenStats.lastError.contains('429') ||
+                                          tokenStats.lastError.toLowerCase().contains('quota') ||
+                                          tokenStats.lastError.toLowerCase().contains('rate_limit') ||
+                                          tokenStats.lastError.toLowerCase().contains('resource_exhausted')))
+                                  ? '⚠ Quota exhausted (Rate limited)'
+                                  : '⚠ Daily limit reached (0 remaining)'
+                              : isNearLimit
+                                  ? '$remainingReplies replies remaining'
+                                  : isCustomLimit
+                                      ? '$remainingReplies of $dailyLimit remaining'
+                                      : (tokenStats != null && tokenStats.requestsLimit > 0)
+                                          ? 'Live API quota · $remainingReplies of $dailyLimit remaining'
+                                          : 'Free tier · $remainingReplies of $dailyLimit remaining',
+                          style: TextStyle(
+                            color: isAtLimit
+                                ? Colors.red
+                                : isNearLimit
+                                    ? Colors.orange
+                                    : Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 11,
+                            fontWeight: isAtLimit || isNearLimit
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${(usagePercent * 100).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          color: limitColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  // Progress bar
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: usagePercent,
+                      minHeight: 6,
+                      backgroundColor: limitColor.withValues(alpha: 0.12),
+                      valueColor: AlwaysStoppedAnimation<Color>(limitColor),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+
   Widget _buildStatsGrid(BuildContext context, WidgetRef ref, Map<String, dynamic> stats) {
     final dailyReplies = stats['dailyRepliesSent'] as int? ?? 0;
-    final activeRules = stats['activeRulesCount'] as int? ?? 0;
+    final activeNotesCount = ref.watch(activeNotesCountProvider);
 
     return Row(
       children: [
@@ -214,17 +481,21 @@ class DashboardScreen extends ConsumerWidget {
         const SizedBox(width: 12),
         Expanded(
           child: _StatCard(
-            icon: Icons.rule,
-            label: 'Active Rules',
-            value: activeRules.toString(),
-            color: Colors.orange,
+            icon: Icons.event_note_rounded,
+            label: 'Notes',
+            value: activeNotesCount.toString(),
+            color: const Color(0xFF9333EA),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const NotesScreen()),
+              );
+            },
           ),
         ),
       ],
     );
   }
-
-
 
   Widget _buildReplyDelayBadge(BuildContext context, AppSettings settings, ReplyCountdownData countdown) {
     final min = settings.minReplyDelaySeconds;
@@ -456,19 +727,16 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildAiModelRow(BuildContext context, String modelKey, int count) {
-    final (label, icon, color) = switch (modelKey) {
-      'deepseek_local' => ('DeepSeek-R1 1.5B (On-Device)', Icons.memory, Colors.purple),
-      _ => (modelKey, Icons.smart_toy, Colors.grey),
-    };
+    final display = AiEngineDisplay.forEngine(modelKey);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 24),
+          Icon(display.icon, color: display.color, size: 24),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              label,
+              display.label,
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     fontWeight: FontWeight.w500,
                   ),
@@ -478,7 +746,7 @@ class DashboardScreen extends ConsumerWidget {
             count.toString(),
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: display.color,
                 ),
           ),
         ],

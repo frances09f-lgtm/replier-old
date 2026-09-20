@@ -1,7 +1,6 @@
 package com.example.auto_reply_assistant.service
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.util.Log
 import dev.ffmpegkit.llama.Llama
 import dev.ffmpegkit.llama.LlamaConfig
@@ -42,18 +41,6 @@ class PhiLocalService private constructor(private val context: Context) {
             val contextSize: Int = 2048,
         )
 
-        /**
-         * Data class for Cerebras API configuration.
-         * Manages API endpoint, model name, and timeout settings.
-         * API key is stored separately in SharedPreferences for security.
-         */
-        data class CerebrasConfig(
-            val apiKey: String = "",
-            val apiUrl: String = "https://api.cerebras.ai/v1/chat/completions",
-            val model: String = "cerebras-instant",
-            val timeout: Long = 15_000L,
-        )
-
         val MODEL_REGISTRY = mapOf(
             "llama_3_2_1b" to ModelConfig(
                 id = "llama_3_2_1b",
@@ -65,26 +52,32 @@ class PhiLocalService private constructor(private val context: Context) {
                 threads = 4,
                 contextSize = 4096,
             ),
+            "qwen_2_5_1_5b" to ModelConfig(
+                id = "qwen_2_5_1_5b",
+                displayName = "Qwen 2.5 1.5B Instruct",
+                filename = "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                url = "https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
+                sizeBytes = 986_000_000L,
+                description = "~980MB, best for multilingual & casual chats",
+                threads = 4,
+                contextSize = 4096,
+            ),
             "llama_3_2_3b" to ModelConfig(
                 id = "llama_3_2_3b",
                 displayName = "Llama 3.2 3B Instruct",
                 filename = "llama-3.2-3b-instruct-q4_k_m.gguf",
                 url = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-                sizeBytes = 2_100_000_000L,
-                description = "~2GB, highly intelligent, fits comfortably in RAM",
+                sizeBytes = 2_020_000_000L,
+                description = "~2.0GB, highest quality reasoning (requires 6GB+ RAM)",
                 threads = 4,
                 contextSize = 4096,
             ),
         )
 
-        private val fallbackReplies = listOf(
-            "Thanks for your message!",
-            "Got it, thanks!",
-            "I'll get back to you soon.",
-            "Noted, thank you!",
-            "Thanks!",
-            "Okay, thanks!",
-        )
+        private const val LLAMA_BEGIN = "<|begin_of_text|>"
+        private const val LLAMA_HDR_START = "<|" + "start_header_id|>"
+        private const val LLAMA_HDR_END = "<|" + "end_header_id|>"
+        private const val LLAMA_EOT = "<|eot_id|>"
     }
 
     data class AiUsage(
@@ -93,23 +86,15 @@ class PhiLocalService private constructor(private val context: Context) {
         val tokensLimit: Int = 0,
         val resetInSeconds: Int = 0,
         val error: String? = null,
+        val requestsRemaining: Int? = null,
+        val requestsLimit: Int? = null,
+        val isLimitReached: Boolean = false,
     )
 
     private val loadedModels = ConcurrentHashMap<String, LlamaModel>()
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val downloadProgressMap = ConcurrentHashMap<String, Int>()
     private val downloadingMap = ConcurrentHashMap<String, Boolean>()
-
-    // Cerebras configuration management
-    private var currentCerebrasConfig = Companion.CerebrasConfig()
-    private val sharedPreferences: SharedPreferences by lazy {
-        context.getSharedPreferences("cerebras_config", Context.MODE_PRIVATE)
-    }
-
-    init {
-        // Load saved API key on initialization
-        loadCerebrasApiKey()
-    }
 
     fun getModelConfig(modelId: String): ModelConfig? = MODEL_REGISTRY[modelId]
 
@@ -254,17 +239,23 @@ class PhiLocalService private constructor(private val context: Context) {
         executor.execute {
             try {
                 if (!isModelAvailable(modelId)) {
-                    callback(fallbackReplies.random(), AiUsage(error = "Model not downloaded"))
+                    callback(null, AiUsage(error = "Model not downloaded"))
                     return@execute
                 }
 
                 val loadedModel = loadModel(modelId)
                 if (loadedModel == null) {
-                    callback(fallbackReplies.random(), AiUsage(error = "Failed to load model"))
+                    callback(null, AiUsage(error = "Failed to load model"))
                     return@execute
                 }
 
                 val combinedMessage = incomingMessages.joinToString("\n") { it }
+                if (combinedMessage.isBlank()) {
+                    callback(null, AiUsage(error = "Empty incoming message"))
+                    return@execute
+                }
+
+                Log.d(TAG, "Local AI input ($modelId) userMessageLen=${combinedMessage.length}: ${combinedMessage.take(500)}")
 
                 val prompt = buildPrompt(modelId, systemPrompt, conversationHistory, combinedMessage, senderName)
                 Log.d(TAG, "Running inference for $modelId (prompt: ${prompt.length} chars)")
@@ -281,7 +272,7 @@ class PhiLocalService private constructor(private val context: Context) {
 
                 if (result == null) {
                     Log.e(TAG, "Inference timed out for $modelId")
-                    callback(fallbackReplies.random(), AiUsage(error = "Inference timed out"))
+                    callback(null, AiUsage(error = "Inference timed out"))
                 } else {
                     val reply = result.text?.trim()
                     Log.d(TAG, "Raw inference result for $modelId: '${reply?.take(200) ?: "NULL"}'")
@@ -289,44 +280,26 @@ class PhiLocalService private constructor(private val context: Context) {
                         val cleanReply = postProcess(reply, senderName, combinedMessage)
                         Log.d(TAG, "Inference complete for $modelId: ${result.tokensPerSecond} tok/s")
                         if (cleanReply.isNotBlank()) {
+                            Log.d(TAG, "Local AI final reply ($modelId): '$cleanReply'")
                             callback(cleanReply, AiUsage(tokensUsed = prompt.length / 4 + cleanReply.length / 4))
                         } else {
                             Log.e(TAG, "Clean reply is blank after postProcess for $modelId")
-                            callback(fallbackReplies.random(), AiUsage(error = "Empty response after processing"))
+                            callback(null, AiUsage(error = "Empty response after processing"))
                         }
                     } else {
                         Log.e(TAG, "Raw reply is null or empty for $modelId")
-                        callback(fallbackReplies.random(), AiUsage(error = "Empty response"))
+                        callback(null, AiUsage(error = "Empty response"))
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Inference failed for $modelId", e)
-                callback(fallbackReplies.random(), AiUsage(error = e.message))
+                callback(null, AiUsage(error = e.message))
             }
         }
     }
 
     private fun buildSystemPrompt(userSystemPrompt: String, senderName: String = "User"): String {
-        val effectiveSender = if (senderName.isBlank()) "the user" else senderName
-        val sb = StringBuilder()
-
-        sb.append("You are an AI assistant auto-replying to incoming messages from $effectiveSender on behalf of the app user.\n\n")
-
-        val trimmedUserPrompt = userSystemPrompt.trim()
-        if (trimmedUserPrompt.isNotBlank()) {
-            sb.append("User Guidelines & Persona:\n")
-            sb.append(trimmedUserPrompt)
-            sb.append("\n\n")
-        }
-
-        sb.append("Instructions:\n")
-        sb.append("- Reply directly to $effectiveSender in a natural, helpful, and friendly tone.\n")
-        sb.append("- Keep replies brief, conversational, and under 30 words.\n")
-        sb.append("- Do NOT repeat or echo $effectiveSender's message.\n")
-        sb.append("- Do NOT copy past assistant replies.\n")
-        sb.append("- Do NOT include role prefixes like 'Assistant:', 'AI:', or '$effectiveSender:'. Output ONLY the message reply text.")
-
-        return sb.toString()
+        return CloudAiRequestBuilder.buildFormattedSystemPrompt(userSystemPrompt, senderName)
     }
 
     private fun buildPrompt(
@@ -340,26 +313,49 @@ class PhiLocalService private constructor(private val context: Context) {
         
         val optimizedSystemPrompt = buildSystemPrompt(systemPrompt, senderName)
         
-        // Llama 3 Format
-        sb.append("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n$optimizedSystemPrompt<|eot_id|>\n")
-        
-        for (msg in history) {
-            val role = if (msg.role == "user") "user" else "assistant"
-            val content = if (msg.role == "user" && !msg.content.startsWith("$senderName:")) {
-                "$senderName: ${msg.content}"
-            } else {
-                msg.content
+        if (modelId.startsWith("qwen", ignoreCase = true)) {
+            // ChatML template for Qwen
+            sb.append("<|im_start|>system\n$optimizedSystemPrompt<|im_end|>\n")
+
+            for (msg in history) {
+                val role = if (msg.role == "user") "user" else "assistant"
+                val content = if (msg.role == "user" && !msg.content.startsWith("$senderName:")) {
+                    "$senderName: ${msg.content}"
+                } else {
+                    msg.content
+                }
+                sb.append("<|im_start|>$role\n$content<|im_end|>\n")
             }
-            sb.append("<|start_header_id|>$role<|end_header_id|>\n\n$content<|eot_id|>\n")
-        }
-        
-        val currentTurnContent = if (!incomingMessage.startsWith("$senderName:")) {
-            "$senderName: $incomingMessage"
+
+            val currentTurnContent = if (!incomingMessage.startsWith("$senderName:")) {
+                "$senderName: $incomingMessage"
+            } else {
+                incomingMessage
+            }
+            sb.append("<|im_start|>user\n$currentTurnContent<|im_end|>\n")
+            sb.append("<|im_start|>assistant\n")
         } else {
-            incomingMessage
+            // Llama 3.2 Instruct chat template (for 1B and 3B)
+            sb.append("${LLAMA_BEGIN}${LLAMA_HDR_START}system${LLAMA_HDR_END}\n\n$optimizedSystemPrompt${LLAMA_EOT}\n")
+
+            for (msg in history) {
+                val role = if (msg.role == "user") "user" else "assistant"
+                val content = if (msg.role == "user" && !msg.content.startsWith("$senderName:")) {
+                    "$senderName: ${msg.content}"
+                } else {
+                    msg.content
+                }
+                sb.append("${LLAMA_HDR_START}$role${LLAMA_HDR_END}\n\n$content${LLAMA_EOT}\n")
+            }
+
+            val currentTurnContent = if (!incomingMessage.startsWith("$senderName:")) {
+                "$senderName: $incomingMessage"
+            } else {
+                incomingMessage
+            }
+            sb.append("${LLAMA_HDR_START}user${LLAMA_HDR_END}\n\n$currentTurnContent${LLAMA_EOT}\n")
+            sb.append("${LLAMA_HDR_START}assistant${LLAMA_HDR_END}\n\n")
         }
-        sb.append("<|start_header_id|>user<|end_header_id|>\n\n$currentTurnContent<|eot_id|>\n")
-        sb.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
         
         val finalPrompt = sb.toString()
         Log.d(TAG, "Built prompt for $modelId (${finalPrompt.length} chars)")
@@ -368,202 +364,10 @@ class PhiLocalService private constructor(private val context: Context) {
 
     private fun postProcess(text: String, senderName: String = "", incomingMessage: String = ""): String {
         Log.d(TAG, "postProcess input: '${text.take(200)}'")
-        var result = text.trim()
-        
-        // Strip model-specific special tokens (Llama 3 specific)
-        result = result.replace("<|eot_id|>", "")
-            .replace("<|start_header_id|>", "")
-            .replace("<|end_header_id|>", "")
-            .replace("<|begin_of_text|>", "")
-            .trim()
-        
-        // Remove common model artifacts
-        result = result.replace("<end_of_turn>", "")
-            .replace("<bos>", "")
-            .replace("<eos>", "")
-            .trim()
-        
-        // Remove role prefixes if present
-        val prefixesToRemove = listOf("Assistant:", "Human:", "User:", "$senderName:", "AI:")
-        for (prefix in prefixesToRemove) {
-            if (prefix.isNotBlank() && result.startsWith(prefix, ignoreCase = true)) {
-                result = result.substring(prefix.length).trim()
-            }
-        }
-
-        // Remove enclosing quotes if the entire string is wrapped in quotes
-        if (result.startsWith("\"") && result.endsWith("\"") && result.length > 2) {
-            result = result.substring(1, result.length - 1).trim()
-        }
-            
-        // If the model echoed the incoming message directly, strip or discard it
-        if (incomingMessage.isNotBlank() && result.equals(incomingMessage.trim(), ignoreCase = true)) {
-            Log.w(TAG, "postProcess: AI echoed the user's incoming message directly. Falling back.")
-            return fallbackReplies.random()
-        }
-
-        // If result is empty after filtering, return a fallback
-        if (result.isBlank()) {
-            Log.w(TAG, "postProcess result is empty after filtering. Original: '${text.take(100)}'")
-            return fallbackReplies.random()
-        }
-        
-        // Take the first paragraph and limit length
-        val firstParagraph = result.split("\n\n").firstOrNull() ?: result
-        val finalResult = firstParagraph.trim().take(300)
-        
-        Log.d(TAG, "postProcess output: '${finalResult}'")
+        val finalResult = AiReplyCleaner.clean(text, senderName, incomingMessage)
+        Log.d(TAG, "postProcess output: '$finalResult'")
         return finalResult
     }
-
-    /**
-     * Returns true if the message batch is "hard or confusing" and should be
-     * escalated to the Cerebras cloud API instead of (or after failing) the local model.
-     *
-     * Heuristics:
-     *  • Total character length > 200 (lengthy question)
-     *  • Contains 2+ question marks (multiple questions)
-     *  • Contains complexity keywords (explain, why, how does, code, summarize, etc.)
-     *  • Contains technical indicators (algorithm, function, error, exception, bug, etc.)
-     */
-    fun isMessageHardOrConfusing(messages: List<String>): Boolean {
-        val combined = messages.joinToString(" ").lowercase()
-        val charLen = combined.length
-
-        if (charLen > 200) {
-            Log.d(TAG, "isHard: length=$charLen > 200")
-            return true
-        }
-
-        val questionCount = combined.count { it == '?' }
-        if (questionCount >= 2) {
-            Log.d(TAG, "isHard: questionCount=$questionCount")
-            return true
-        }
-
-        val complexityKeywords = listOf(
-            "explain", "why", "how does", "how do", "can you", "what is", "what are",
-            "describe", "summarize", "summary", "difference between", "compare",
-            "help me", "assist", "code", "function", "algorithm", "implement",
-            "error", "exception", "bug", "fix", "solve", "calculate", "analyze"
-        )
-        val hasComplexKeyword = complexityKeywords.any { combined.contains(it) }
-        if (hasComplexKeyword) {
-            Log.d(TAG, "isHard: matched complexity keyword in: '${combined.take(80)}'")
-            return true
-        }
-
-        return false
-    }
-
-    /**
-     * Calls the Cerebras cloud API and returns a reply via callback.
-     * Runs on the executor (background thread). Callback is invoked on the same thread.
-     */
-    fun getCerebrasReplyBatch(
-        apiKey: String,
-        model: String,
-        senderName: String,
-        incomingMessages: List<String>,
-        systemPrompt: String,
-        conversationHistory: List<ConversationHistory.ChatMessage> = emptyList(),
-        callback: (String?, AiUsage?) -> Unit,
-    ) {
-        if (apiKey.isBlank()) {
-            Log.w(TAG, "Cerebras API key is empty — skipping")
-            callback(fallbackReplies.random(), AiUsage(error = "No Cerebras API key configured"))
-            return
-        }
-
-        executor.execute {
-            try {
-                val url = URL(currentCerebrasConfig.apiUrl)
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("Authorization", "Bearer $apiKey")
-                conn.connectTimeout = currentCerebrasConfig.timeout.toInt()
-                conn.readTimeout = currentCerebrasConfig.timeout.toInt()
-                conn.doOutput = true
-
-                // Build messages array
-                val messagesArray = org.json.JSONArray()
-
-                // System message
-                val fullSystemPrompt = buildSystemPrompt(systemPrompt, senderName)
-                messagesArray.put(org.json.JSONObject().apply {
-                    put("role", "system")
-                    put("content", fullSystemPrompt)
-                })
-
-                // Conversation history
-                for (msg in conversationHistory) {
-                    messagesArray.put(org.json.JSONObject().apply {
-                        put("role", msg.role)
-                        put("content", msg.content)
-                    })
-                }
-
-                // Incoming user messages
-                val userContent = if (incomingMessages.size == 1) {
-                    "Message from $senderName: ${incomingMessages[0]}"
-                } else {
-                    "Messages from $senderName:\n${incomingMessages.joinToString("\n")}"
-                }
-                messagesArray.put(org.json.JSONObject().apply {
-                    put("role", "user")
-                    put("content", userContent)
-                })
-
-                val body = org.json.JSONObject().apply {
-                    put("model", model)
-                    put("messages", messagesArray)
-                    put("max_tokens", 150)
-                    put("temperature", 0.7)
-                }.toString()
-
-                conn.outputStream.use { it.write(body.toByteArray()) }
-
-                val responseCode = conn.responseCode
-                val responseBody = if (responseCode == 200) {
-                    conn.inputStream.bufferedReader().readText()
-                } else {
-                    conn.errorStream?.bufferedReader()?.readText() ?: "HTTP $responseCode"
-                }
-                conn.disconnect()
-
-                if (responseCode != 200) {
-                    Log.e(TAG, "Cerebras API error $responseCode: $responseBody")
-                    callback(fallbackReplies.random(), AiUsage(error = "Cerebras API error $responseCode"))
-                    return@execute
-                }
-
-                val json = org.json.JSONObject(responseBody)
-                val choices = json.optJSONArray("choices")
-                val reply = choices?.optJSONObject(0)
-                    ?.optJSONObject("message")
-                    ?.optString("content")
-                    ?.trim()
-
-                val usage = json.optJSONObject("usage")
-                val tokensUsed = usage?.optInt("total_tokens", 0) ?: 0
-
-                if (!reply.isNullOrBlank()) {
-                    val cleanReply = postProcess(reply, senderName, incomingMessages.lastOrNull() ?: "")
-                    Log.d(TAG, "Cerebras reply: '${cleanReply.take(100)}'")
-                    callback(cleanReply, AiUsage(tokensUsed = tokensUsed))
-                } else {
-                    Log.e(TAG, "Cerebras returned empty content")
-                    callback(fallbackReplies.random(), AiUsage(error = "Empty response from Cerebras"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Cerebras API call failed", e)
-                callback(fallbackReplies.random(), AiUsage(error = e.message))
-            }
-        }
-    }
-
-
 
     fun close() {
         loadedModels.values.forEach {
@@ -572,69 +376,5 @@ class PhiLocalService private constructor(private val context: Context) {
         loadedModels.clear()
         executor.shutdown()
     }
-
-    // ===== Cerebras API Configuration Methods =====
-
-    /**
-     * Returns the current Cerebras API configuration.
-     * @return CerebrasConfig with current settings including API key
-     */
-    fun getCerebrasConfig(): Companion.CerebrasConfig = currentCerebrasConfig
-
-    /**
-     * Saves the Cerebras API key to SharedPreferences.
-     * API key is persisted for use across app sessions.
-     * @param apiKey The API key to save (can be empty to clear)
-     */
-    fun setCerebrasApiKey(apiKey: String) {
-        val trimmedKey = apiKey.trim()
-        currentCerebrasConfig = currentCerebrasConfig.copy(apiKey = trimmedKey)
-        sharedPreferences.edit().putString("cerebras_api_key", trimmedKey).apply()
-        Log.d(TAG, "Cerebras API key saved (${maskApiKey(trimmedKey)})")
-    }
-
-    /**
-     * Loads the saved Cerebras API key from SharedPreferences.
-     * Called automatically on service initialization.
-     */
-    fun loadCerebrasApiKey() {
-        val savedKey = sharedPreferences.getString("cerebras_api_key", "")?.trim() ?: ""
-        currentCerebrasConfig = currentCerebrasConfig.copy(apiKey = savedKey)
-        Log.d(TAG, "Cerebras API key loaded (${maskApiKey(savedKey)})")
-    }
-
-    /**
-     * Checks if Cerebras API is available and configured.
-     * Returns true only if API key is non-empty and non-blank.
-     * @return true if API key is configured, false otherwise
-     */
-    fun isCerebrasAvailable(): Boolean {
-        val available = currentCerebrasConfig.apiKey.isNotBlank()
-        Log.d(TAG, "Cerebras availability check: $available")
-        return available
-    }
-
-    /**
-     * Clears the saved Cerebras API key.
-     * API becomes unavailable after this call.
-     */
-    fun clearCerebrasApiKey() {
-        currentCerebrasConfig = currentCerebrasConfig.copy(apiKey = "")
-        sharedPreferences.edit().remove("cerebras_api_key").apply()
-        Log.d(TAG, "Cerebras API key cleared")
-    }
-
-    /**
-     * Masks API key for safe logging.
-     * Shows first 3 and last 3 characters with "..." in between.
-     * @param apiKey The API key to mask
-     * @return Masked API key suitable for logging
-     */
-    private fun maskApiKey(apiKey: String): String {
-        return when {
-            apiKey.isBlank() -> "(empty)"
-            apiKey.length <= 6 -> "***"
-            else -> apiKey.take(3) + "..." + apiKey.takeLast(3)
-        }
-    }
 }
+

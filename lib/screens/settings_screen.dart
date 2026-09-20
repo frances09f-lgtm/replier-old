@@ -211,7 +211,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Use on-device model, Cerebras cloud API, or Smart Hybrid (local first, API when message is hard/confusing)',
+            'Choose an AI engine for instant auto-replies when no specific rule matches.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: Colors.grey[600],
             ),
@@ -228,99 +228,211 @@ class SettingsScreen extends ConsumerWidget {
           ),
 
           if (settings.aiReplyEnabled) ...[
-            // ── AI Mode selector ───────────────────────────────────────
+            const SizedBox(height: 12),
             Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                'AI Engine & Provider',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Engine Option 1: Cerebras
+            _buildEngineOptionCard(
+              context: context,
+              ref: ref,
+              settings: settings,
+              engineType: 'cerebras_api',
+              title: 'Cerebras Cloud API (⚡ Ultra-Fast)',
+              subtitle: '2,100+ tokens/sec, ~1,000 free replies/day (<0.2s latency)',
+              badge: 'Recommended',
+              badgeColor: Colors.amber[800]!,
+              apiKey: settings.cerebrasApiKey,
+              model: settings.cerebrasModel,
+              defaultModel: 'llama-3.3-70b',
+              availableModels: const ['llama-3.3-70b', 'llama3.1-8b'],
+              keyUrl: 'https://cloud.cerebras.ai',
+              onSave: (key, model) {
+                ref.read(appSettingsProvider.notifier).updateCerebrasConfig(key, model);
+              },
+            ),
+
+            const SizedBox(height: 8),
+
+            // Engine Option 2: Groq
+            _buildEngineOptionCard(
+              context: context,
+              ref: ref,
+              settings: settings,
+              engineType: 'groq_api',
+              title: 'Groq Cloud API (⚡ Super-Fast)',
+              subtitle: '800+ tokens/sec, ~1,000 free replies/day · 30 RPM (LPU accelerated)',
+              badge: 'High Speed',
+              badgeColor: Colors.orange[700]!,
+              apiKey: settings.groqApiKey,
+              model: settings.groqModel,
+              defaultModel: 'openai/gpt-oss-20b',
+              availableModels: const [
+                'openai/gpt-oss-20b',
+                'openai/gpt-oss-120b',
+                'qwen/qwen3.6-27b',
+              ],
+              keyUrl: 'https://console.groq.com',
+              onSave: (key, model) {
+                ref.read(appSettingsProvider.notifier).updateGroqConfig(key, model);
+              },
+            ),
+
+            const SizedBox(height: 8),
+
+            // Engine Option 3: Gemini Flash
+            _buildEngineOptionCard(
+              context: context,
+              ref: ref,
+              settings: settings,
+              engineType: 'gemini_api',
+              title: 'Google Gemini Flash (🌟 Google AI)',
+              subtitle: '250–500 free requests/day · 15 RPM (Google AI)',
+              badge: 'Smart',
+              badgeColor: Colors.blue[700]!,
+              apiKey: settings.geminiApiKey,
+              model: settings.geminiModel,
+              defaultModel: 'gemini-3.6-flash',
+              availableModels: const ['gemini-3.6-flash', 'gemini-2.5-flash'],
+              keyUrl: 'https://aistudio.google.com',
+              onSave: (key, model) {
+                ref.read(appSettingsProvider.notifier).updateGeminiConfig(key, model);
+              },
+            ),
+
+            const SizedBox(height: 8),
+
+            // Engine Option 4: On-Device Llama 3.2
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: settings.aiModelType == 'phi_local'
+                      ? Theme.of(context).primaryColor
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('AI Mode', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                  const SizedBox(height: 8),
-                  // Smart Hybrid tile
-                  _AiModeTile(
-                    value: 'auto_local_first',
-                    groupValue: settings.aiModelType,
-                    title: 'Smart Hybrid (Recommended)',
-                    subtitle: 'Local model for simple messages, Cerebras API for hard/confusing ones',
-                    icon: Icons.auto_awesome,
-                    iconColor: Colors.deepPurple,
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('auto_local_first'),
-                  ),
-                  const SizedBox(height: 8),
-                  // Local only tile
-                  _AiModeTile(
+                  RadioListTile<String>(
                     value: 'phi_local',
                     groupValue: settings.aiModelType,
-                    title: 'Local Model Only',
-                    subtitle: 'Fully offline — no internet needed',
-                    icon: Icons.phone_android,
-                    iconColor: Colors.green,
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('phi_local'),
+                    title: const Row(
+                      children: [
+                        Text('On-Device Llama 3.2 1B', style: TextStyle(fontWeight: FontWeight.bold)),
+                        SizedBox(width: 8),
+                        Icon(Icons.offline_bolt, size: 18, color: Colors.green),
+                      ],
+                    ),
+                    subtitle: const Text('Offline local model (run private AI on-device, no internet needed)'),
+                    onChanged: (val) {
+                      if (val != null) {
+                        ref.read(appSettingsProvider.notifier).updateAiModelType(val);
+                      }
+                    },
                   ),
-                  const SizedBox(height: 8),
-                  // Cerebras API only tile
-                  _AiModeTile(
-                    value: 'cerebras_api',
-                    groupValue: settings.aiModelType,
-                    title: 'Cerebras Cloud API Only',
-                    subtitle: 'Fast cloud LLM — requires API key & internet',
-                    icon: Icons.cloud,
-                    iconColor: Colors.blue,
-                    onTap: () => ref.read(appSettingsProvider.notifier).updateAiModelType('cerebras_api'),
-                  ),
+                  if (settings.aiModelType == 'phi_local' || settings.fallbackToLocalModel)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        children: [
+                          _ModelRadioTile(
+                            value: 'llama_3_2_1b',
+                            groupValue: settings.selectedLocalModel,
+                            title: settings.aiModelType == 'phi_local'
+                                ? 'Llama 3.2 1B Instruct'
+                                : 'Llama 3.2 1B Instruct (Fallback)',
+                            subtitle: '~800MB, blazing fast for basic replies',
+                            onTap: () {
+                              ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_1b');
+                            },
+                            modelId: 'llama_3_2_1b',
+                            selectedModelId: settings.selectedLocalModel,
+                          ),
+                          const SizedBox(height: 8),
+                          _ModelRadioTile(
+                            value: 'qwen_2_5_1_5b',
+                            groupValue: settings.selectedLocalModel,
+                            title: settings.aiModelType == 'phi_local'
+                                ? 'Qwen 2.5 1.5B Instruct'
+                                : 'Qwen 2.5 1.5B Instruct (Fallback)',
+                            subtitle: '~980MB, best for multilingual & casual chats',
+                            onTap: () {
+                              ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('qwen_2_5_1_5b');
+                            },
+                            modelId: 'qwen_2_5_1_5b',
+                            selectedModelId: settings.selectedLocalModel,
+                          ),
+                          const SizedBox(height: 8),
+                          _ModelRadioTile(
+                            value: 'llama_3_2_3b',
+                            groupValue: settings.selectedLocalModel,
+                            title: settings.aiModelType == 'phi_local'
+                                ? 'Llama 3.2 3B Instruct'
+                                : 'Llama 3.2 3B Instruct (Fallback)',
+                            subtitle: '~2.0GB, highest quality reasoning (requires 6GB+ RAM)',
+                            onTap: () {
+                              ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_3b');
+                            },
+                            modelId: 'llama_3_2_3b',
+                            selectedModelId: settings.selectedLocalModel,
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
 
-            // ── Local model picker (shown when local or hybrid mode) ───
-            if (settings.aiModelType == 'phi_local' || settings.aiModelType == 'auto_local_first') ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(left: 4),
-                      child: Text('Local Model', style: TextStyle(fontWeight: FontWeight.w500)),
-                    ),
-                    const SizedBox(height: 4),
-                    _ModelRadioTile(
-                      value: 'llama_3_2_1b',
-                      groupValue: settings.selectedLocalModel,
-                      title: 'Llama 3.2 1B Instruct',
-                      subtitle: '~800MB, blazing fast for basic replies',
-                      onTap: () {
-                        ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_1b');
-                      },
-                      modelId: 'llama_3_2_1b',
-                      selectedModelId: settings.selectedLocalModel,
-                    ),
-                    const SizedBox(height: 8),
-                    _ModelRadioTile(
-                      value: 'llama_3_2_3b',
-                      groupValue: settings.selectedLocalModel,
-                      title: 'Llama 3.2 3B Instruct',
-                      subtitle: '~2GB, highly intelligent, fits comfortably in RAM',
-                      onTap: () {
-                        ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_3b');
-                      },
-                      modelId: 'llama_3_2_3b',
-                      selectedModelId: settings.selectedLocalModel,
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            const SizedBox(height: 12),
 
-            // ── Cerebras API config (shown when cerebras or hybrid mode) ─
-            if (settings.aiModelType == 'cerebras_api' || settings.aiModelType == 'auto_local_first') ...[
-              _CerebrasApiSection(settings: settings, ref: ref),
-            ],
+            // ── Local Model Fallback Switch ────────────────────────────────
+            Card(
+              elevation: 0,
+              color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.35),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: SwitchListTile(
+                secondary: const Icon(Icons.shield_outlined, color: Colors.green),
+                title: const Text(
+                  'Local Model Fallback',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  'Automatically reply with on-device local model (${_getLocalModelLabel(settings.selectedLocalModel)}) whenever cloud API keys fail, expire, hit limits, or lose connection.',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                value: settings.fallbackToLocalModel,
+                onChanged: (val) {
+                  ref.read(appSettingsProvider.notifier).updateFallbackToLocalModel(val);
+                },
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            // ── Daily Reply Limits ─────────────────────────────────────────
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.speed_rounded, size: 20),
+              title: const Text('Daily Reply Limits'),
+              subtitle: Text(
+                _buildLimitSummary(settings),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showDailyLimitsDialog(context, ref, settings),
+            ),
 
             // ── System Prompt ─────────────────────────────────────────
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('System Prompt'),
+              title: const Text('System Prompt & Persona'),
               subtitle: Text(
                 settings.aiSystemPrompt.length > 50
                     ? '${settings.aiSystemPrompt.substring(0, 50)}...'
@@ -328,6 +440,19 @@ class SettingsScreen extends ConsumerWidget {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showSystemPromptDialog(context, ref, settings.aiSystemPrompt),
+            ),
+
+            // ── AI Training Memory ───────────────────────────────────
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('AI Training Memory'),
+              subtitle: Text(
+                settings.trainingExamples.isEmpty
+                    ? 'No trained examples yet. Train AI in Chat Sandbox.'
+                    : '${settings.trainingExamples.length} trained response pattern(s)',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _showTrainingMemoryDialog(context, ref, settings),
             ),
           ],
 
@@ -421,6 +546,312 @@ class SettingsScreen extends ConsumerWidget {
     return '$displayHour:${minute.toString().padLeft(2, '0')} $period';
   }
 
+  String _buildLimitSummary(AppSettings settings) {
+    final parts = <String>[];
+    if (settings.cerebrasReplyLimit > 0) parts.add('Cerebras: ${settings.cerebrasReplyLimit}/day');
+    if (settings.groqReplyLimit > 0) parts.add('Groq: ${settings.groqReplyLimit}/day');
+    if (settings.geminiReplyLimit > 0) parts.add('Gemini: ${settings.geminiReplyLimit}/day');
+    if (settings.localReplyLimit > 0) parts.add('Local: ${settings.localReplyLimit}/day');
+    return parts.isEmpty ? 'No limits set (unlimited)' : parts.join(' · ');
+  }
+
+  String _getLocalModelLabel(String modelId) {
+    switch (modelId) {
+      case 'qwen_2_5_1_5b':
+        return 'Qwen 2.5 1.5B';
+      case 'llama_3_2_3b':
+        return 'Llama 3.2 3B';
+      case 'llama_3_2_1b':
+      default:
+        return 'Llama 3.2 1B';
+    }
+  }
+
+  void _showDailyLimitsDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
+    final cerebrasCtrl = TextEditingController(
+      text: settings.cerebrasReplyLimit > 0 ? settings.cerebrasReplyLimit.toString() : '',
+    );
+    final groqCtrl = TextEditingController(
+      text: settings.groqReplyLimit > 0 ? settings.groqReplyLimit.toString() : '',
+    );
+    final geminiCtrl = TextEditingController(
+      text: settings.geminiReplyLimit > 0 ? settings.geminiReplyLimit.toString() : '',
+    );
+    final localCtrl = TextEditingController(
+      text: settings.localReplyLimit > 0 ? settings.localReplyLimit.toString() : '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Daily Reply Limits', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Set the maximum number of AI replies per day for each engine. Leave blank or 0 for unlimited.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              _LimitField(label: '⚡ Cerebras Cloud', controller: cerebrasCtrl, hint: 'Free tier: ~1,000/day'),
+              const SizedBox(height: 12),
+              _LimitField(label: '🔶 Groq Cloud', controller: groqCtrl, hint: 'Free tier: ~1,000/day'),
+              const SizedBox(height: 12),
+              _LimitField(label: '🔵 Google Gemini', controller: geminiCtrl, hint: 'Free tier: 250–500/day'),
+              const SizedBox(height: 12),
+              _LimitField(label: '🟣 On-Device (Local)', controller: localCtrl, hint: 'Unlimited (e.g. 200)'),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              int parseLimit(TextEditingController c) {
+                return int.tryParse(c.text.trim()) ?? 0;
+              }
+              ref.read(appSettingsProvider.notifier).updateAiReplyLimits(
+                cerebrasReplyLimit: parseLimit(cerebrasCtrl),
+                groqReplyLimit: parseLimit(groqCtrl),
+                geminiReplyLimit: parseLimit(geminiCtrl),
+                localReplyLimit: parseLimit(localCtrl),
+              );
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Daily limits saved')),
+              );
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEngineOptionCard({
+    required BuildContext context,
+    required WidgetRef ref,
+    required AppSettings settings,
+    required String engineType,
+    required String title,
+    required String subtitle,
+    required String badge,
+    required Color badgeColor,
+    required String apiKey,
+    required String model,
+    required String defaultModel,
+    required List<String> availableModels,
+    required String keyUrl,
+    required Function(String key, String model) onSave,
+  }) {
+    final isSelected = settings.aiModelType == engineType;
+    final hasKey = apiKey.trim().isNotEmpty;
+    final effectiveModel = model.isNotEmpty ? model : defaultModel;
+
+    return Card(
+      elevation: isSelected ? 2 : 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Column(
+        children: [
+          RadioListTile<String>(
+            value: engineType,
+            groupValue: settings.aiModelType,
+            title: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: badgeColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    badge,
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: badgeColor),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+            onChanged: (val) {
+              if (val != null) {
+                ref.read(appSettingsProvider.notifier).updateAiModelType(val);
+              }
+            },
+          ),
+          if (isSelected)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Divider(height: 1),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        hasKey ? Icons.check_circle : Icons.warning_amber_rounded,
+                        size: 16,
+                        color: hasKey ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        hasKey
+                            ? 'API Key Configured'
+                            : (settings.fallbackToLocalModel
+                                ? 'API Key Missing (Local Fallback Active)'
+                                : 'API Key Missing'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: hasKey
+                              ? Colors.green[800]
+                              : (settings.fallbackToLocalModel
+                                  ? Colors.blue[800]
+                                  : Colors.orange[800]),
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'Model: $effectiveModel',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        _showApiConfigDialog(
+                          context: context,
+                          title: title,
+                          apiKey: apiKey,
+                          currentModel: effectiveModel,
+                          availableModels: availableModels,
+                          keyUrl: keyUrl,
+                          onSave: onSave,
+                        );
+                      },
+                      icon: const Icon(Icons.key, size: 16),
+                      label: Text(hasKey ? 'Change API Key / Model' : 'Set API Key & Model'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showApiConfigDialog({
+    required BuildContext context,
+    required String title,
+    required String apiKey,
+    required String currentModel,
+    required List<String> availableModels,
+    required String keyUrl,
+    required Function(String key, String model) onSave,
+  }) {
+    final keyController = TextEditingController(text: apiKey);
+    String selectedModel = availableModels.contains(currentModel)
+        ? currentModel
+        : availableModels.first;
+    bool obscureKey = true;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('API Key', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: keyController,
+                  obscureText: obscureKey,
+                  decoration: InputDecoration(
+                    hintText: 'Enter API key',
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureKey ? Icons.visibility : Icons.visibility_off, size: 20),
+                      onPressed: () {
+                        setDialogState(() => obscureKey = !obscureKey);
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Get free API key at $keyUrl',
+                  style: const TextStyle(fontSize: 11, color: Colors.blue, decoration: TextDecoration.underline),
+                ),
+                const SizedBox(height: 16),
+                const Text('Model Selection', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedModel,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: availableModels.map((m) {
+                    return DropdownMenuItem(
+                      value: m,
+                      child: Text(m, style: const TextStyle(fontSize: 13)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setDialogState(() => selectedModel = val);
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                onSave(keyController.text.trim(), selectedModel);
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('API Configuration Saved')),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showTimePickerDialog(
     BuildContext context,
     WidgetRef ref,
@@ -507,8 +938,10 @@ class SettingsScreen extends ConsumerWidget {
             ),
             TextButton(
               onPressed: () {
-                final min = tempMin <= tempMax ? tempMin : tempMax;
-                final max = tempMin <= tempMax ? tempMax : tempMin;
+                final parsedMin = (int.tryParse(minController.text) ?? tempMin).clamp(0, 300);
+                final parsedMax = (int.tryParse(maxController.text) ?? tempMax).clamp(0, 300);
+                final min = parsedMin <= parsedMax ? parsedMin : parsedMax;
+                final max = parsedMin <= parsedMax ? parsedMax : parsedMin;
                 ref
                     .read(appSettingsProvider.notifier)
                     .updateReplyDelayRange(min, max);
@@ -777,219 +1210,94 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-}
 
-/// Simple card tile for AI mode selection (local / cerebras / hybrid)
-class _AiModeTile extends StatelessWidget {
-  final String value;
-  final String groupValue;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color iconColor;
-  final VoidCallback onTap;
-
-  const _AiModeTile({
-    required this.value,
-    required this.groupValue,
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.iconColor,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = value == groupValue;
-    return Card(
-      elevation: isSelected ? 2 : 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(
-          color: isSelected ? iconColor : Colors.grey.shade300,
-          width: isSelected ? 2 : 1,
-        ),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        leading: CircleAvatar(
-          backgroundColor: isSelected ? iconColor.withOpacity(0.15) : Colors.grey.shade100,
-          child: Icon(icon, color: isSelected ? iconColor : Colors.grey, size: 20),
-        ),
-        title: Text(title,
-            style: TextStyle(
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                fontSize: 14)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        trailing: Radio<String>(
-          value: value,
-          groupValue: groupValue,
-          onChanged: (_) => onTap(),
-          activeColor: iconColor,
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-}
-
-/// Cerebras API key configuration section shown in settings
-class _CerebrasApiSection extends StatefulWidget {
-  final AppSettings settings;
-  final WidgetRef ref;
-
-  const _CerebrasApiSection({required this.settings, required this.ref});
-
-  @override
-  State<_CerebrasApiSection> createState() => _CerebrasApiSectionState();
-}
-
-class _CerebrasApiSectionState extends State<_CerebrasApiSection> {
-  late TextEditingController _keyController;
-  bool _obscure = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _keyController = TextEditingController(text: widget.settings.cerebrasApiKey);
-  }
-
-  @override
-  void didUpdateWidget(_CerebrasApiSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.settings.cerebrasApiKey != widget.settings.cerebrasApiKey) {
-      _keyController.text = widget.settings.cerebrasApiKey;
-    }
-  }
-
-  @override
-  void dispose() {
-    _keyController.dispose();
-    super.dispose();
-  }
-
-  void _saveKey() {
-    widget.ref.read(appSettingsProvider.notifier).updateCerebrasConfig(
-      _keyController.text.trim(),
-      widget.settings.cerebrasModel,
-    );
-    FocusScope.of(context).unfocus();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cerebras API key saved'), duration: Duration(seconds: 2)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final hasKey = widget.settings.cerebrasApiKey.isNotEmpty;
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withOpacity(0.4),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.cloud, size: 18, color: Colors.blue),
-                const SizedBox(width: 8),
-                const Text('Cerebras API Key',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                const Spacer(),
-                if (hasKey)
-                  const Icon(Icons.check_circle, color: Colors.green, size: 18),
-              ],
-            ),
-            const SizedBox(height: 4),
-            // API key link
-            InkWell(
-              onTap: () async {
-                const url = 'https://cloud.cerebras.ai/';
-                try {
-                  await const MethodChannel('com.example.auto_reply_assistant/native')
-                      .invokeMethod('openUrl', {'url': url});
-                } catch (_) {
-                  await Clipboard.setData(const ClipboardData(text: url));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Copied: https://cloud.cerebras.ai/'),
-                        duration: Duration(seconds: 4),
-                      ),
-                    );
-                  }
-                }
-              },
-              child: const Text(
-                '🔗 Get free API key → cloud.cerebras.ai',
-                style: TextStyle(
-                  color: Colors.blue,
-                  fontSize: 12,
-                  decoration: TextDecoration.underline,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            // API key text field
-            TextField(
-              controller: _keyController,
-              obscureText: _obscure,
-              decoration: InputDecoration(
-                labelText: 'API Key',
-                hintText: 'csk-...',
-                border: const OutlineInputBorder(),
-                isDense: true,
-                suffixIcon: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off, size: 20),
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.save, size: 20, color: Colors.blue),
-                      onPressed: _saveKey,
-                      tooltip: 'Save',
-                    ),
-                  ],
-                ),
-              ),
-              onSubmitted: (_) => _saveKey(),
-            ),
-            const SizedBox(height: 8),
-            // Model selector
-            DropdownButtonFormField<String>(
-              value: widget.settings.cerebrasModel,
-              decoration: const InputDecoration(
-                labelText: 'Cerebras Model',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              items: const [
-                DropdownMenuItem(value: 'llama-3.3-70b', child: Text('Llama 3.3 70B (Smart)')),
-                DropdownMenuItem(value: 'llama3.1-8b', child: Text('Llama 3.1 8B (Fast)')),
-              ],
-              onChanged: (val) {
-                if (val != null) {
-                  widget.ref.read(appSettingsProvider.notifier).updateCerebrasConfig(
-                    widget.settings.cerebrasApiKey,
-                    val,
-                  );
-                }
-              },
-            ),
-            if (!hasKey) ...[
-              const SizedBox(height: 8),
-              Text(
-                '⚠ API key required for Cerebras Cloud replies',
-                style: TextStyle(fontSize: 11, color: Colors.orange[700]),
-              ),
+  void _showTrainingMemoryDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final examples = settings.trainingExamples;
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.school, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('AI Training Memory', style: TextStyle(fontSize: 18)),
             ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: examples.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 48, color: Colors.grey),
+                        SizedBox(height: 12),
+                        Text(
+                          'No training examples saved yet.',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          'Use "Train AI" on response bubbles in the Chat screen to teach the AI how to reply.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: examples.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final item = examples[index];
+                      final id = item['id'] ?? '';
+                      final userMsg = item['userMessage'] ?? '';
+                      final reply = item['correctedReply'] ?? '';
+
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          'User: "$userMsg"',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          'Trained Reply: "$reply"',
+                          style: const TextStyle(fontSize: 13, color: Colors.green),
+                        ),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
+                          onPressed: () {
+                            ref.read(appSettingsProvider.notifier).removeTrainingExample(id);
+                            Navigator.pop(ctx);
+                            _showTrainingMemoryDialog(context, ref, ref.read(appSettingsProvider));
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            if (examples.isNotEmpty)
+              TextButton(
+                onPressed: () {
+                  ref.read(appSettingsProvider.notifier).clearTrainingExamples();
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Cleared all AI training examples.')),
+                  );
+                },
+                child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -1190,6 +1498,41 @@ class _PermissionTile extends StatelessWidget {
             ? const Text('Granted', style: TextStyle(color: Colors.green))
             : ElevatedButton(onPressed: onGrant, child: const Text('Grant')),
       ),
+    );
+  }
+}
+
+/// Small labeled numeric input for daily limit dialogs
+class _LimitField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+
+  const _LimitField({
+    required this.label,
+    required this.controller,
+    required this.hint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        const SizedBox(height: 4),
+        TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: InputDecoration(
+            hintText: hint,
+            helperText: 'Leave blank or 0 for unlimited',
+            border: const OutlineInputBorder(),
+            isDense: true,
+            suffixText: 'replies/day',
+          ),
+        ),
+      ],
     );
   }
 }

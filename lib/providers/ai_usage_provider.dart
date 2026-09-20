@@ -4,6 +4,41 @@ import '../services/auto_reply_service.dart';
 import '../services/notification_service.dart';
 import 'settings_provider.dart';
 
+/// Per-engine usage counters and live rate-limit data (today, from native).
+class AiProviderUsage {
+  final int requestsToday;
+  final int tokensToday;
+  final int requestsLimit;
+  final int? requestsRemaining;
+  final bool isLimitReached;
+  final int limitResetTimestamp;
+  final String lastError;
+
+  const AiProviderUsage({
+    this.requestsToday = 0,
+    this.tokensToday = 0,
+    this.requestsLimit = 0,
+    this.requestsRemaining,
+    this.isLimitReached = false,
+    this.limitResetTimestamp = 0,
+    this.lastError = '',
+  });
+
+  factory AiProviderUsage.fromMap(Map<dynamic, dynamic>? map) {
+    if (map == null) return const AiProviderUsage();
+    final rem = map['requestsRemaining'];
+    return AiProviderUsage(
+      requestsToday: (map['requestsToday'] as num?)?.toInt() ?? 0,
+      tokensToday: (map['tokensToday'] as num?)?.toInt() ?? 0,
+      requestsLimit: (map['requestsLimit'] as num?)?.toInt() ?? 0,
+      requestsRemaining: rem is num && rem >= 0 ? rem.toInt() : null,
+      isLimitReached: map['isLimitReached'] as bool? ?? false,
+      limitResetTimestamp: (map['limitResetTimestamp'] as num?)?.toInt() ?? 0,
+      lastError: (map['lastError'] as String?) ?? '',
+    );
+  }
+}
+
 /// Model for AI usage data
 class AiUsageData {
   final int tokensUsed;
@@ -12,6 +47,7 @@ class AiUsageData {
   final int resetInSeconds;
   final String error;
   final DateTime timestamp;
+  final Map<String, AiProviderUsage> providerStats;
 
   AiUsageData({
     this.tokensUsed = 0,
@@ -20,6 +56,7 @@ class AiUsageData {
     this.resetInSeconds = 0,
     this.error = '',
     DateTime? timestamp,
+    this.providerStats = const {},
   }) : timestamp = timestamp ?? DateTime.now();
 
   double get usagePercent =>
@@ -49,6 +86,7 @@ class AiUsageData {
     int? resetInSeconds,
     String? error,
     DateTime? timestamp,
+    Map<String, AiProviderUsage>? providerStats,
   }) {
     return AiUsageData(
       tokensUsed: tokensUsed ?? this.tokensUsed,
@@ -57,7 +95,21 @@ class AiUsageData {
       resetInSeconds: resetInSeconds ?? this.resetInSeconds,
       error: error ?? this.error,
       timestamp: timestamp ?? this.timestamp,
+      providerStats: providerStats ?? this.providerStats,
     );
+  }
+
+  static Map<String, AiProviderUsage> _parseProviderStats(dynamic raw) {
+    if (raw is! Map) return {};
+    final result = <String, AiProviderUsage>{};
+    raw.forEach((key, value) {
+      if (key is String) {
+        result[key] = AiProviderUsage.fromMap(
+          value is Map ? Map<dynamic, dynamic>.from(value) : null,
+        );
+      }
+    });
+    return result;
   }
 }
 
@@ -112,6 +164,7 @@ class AiUsageNotifier extends StateNotifier<AiUsageData> {
           resetInSeconds: usage['resetInSeconds'] ?? 0,
           error: usage['error'] ?? '',
           timestamp: DateTime.fromMillisecondsSinceEpoch(usage['timestamp'] ?? 0),
+          providerStats: AiUsageData._parseProviderStats(usage['providerStats']),
         );
       }
     } catch (e) {
@@ -120,13 +173,17 @@ class AiUsageNotifier extends StateNotifier<AiUsageData> {
   }
 
   void updateFromNative(Map<String, dynamic> data) {
-    state = AiUsageData(
+    state = state.copyWith(
       tokensUsed: data['tokensUsed'] ?? state.tokensUsed,
       tokensRemaining: data['tokensRemaining'] ?? state.tokensRemaining,
       tokensLimit: data['tokensLimit'] ?? state.tokensLimit,
       resetInSeconds: data['resetInSeconds'] ?? state.resetInSeconds,
       error: data['error'] ?? state.error,
+      providerStats: data.containsKey('providerStats')
+          ? AiUsageData._parseProviderStats(data['providerStats'])
+          : state.providerStats,
     );
+    loadUsage();
   }
 }
 

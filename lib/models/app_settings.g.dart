@@ -45,6 +45,16 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       selectedLocalModel: fields[33] as String,
       cerebrasApiKey: fields[34] as String? ?? '',
       cerebrasModel: fields[35] as String? ?? 'llama-3.3-70b',
+      groqApiKey: fields[37] as String? ?? '',
+      groqModel: fields[38] as String? ?? 'openai/gpt-oss-20b',
+      geminiApiKey: fields[39] as String? ?? '',
+      geminiModel: fields[40] as String? ?? 'gemini-3.6-flash',
+      trainingExamplesRaw: (fields[36] as List?)?.cast<String>() ?? [],
+      cerebrasReplyLimit: fields[41] as int? ?? 0,
+      groqReplyLimit: fields[42] as int? ?? 0,
+      geminiReplyLimit: fields[43] as int? ?? 0,
+      localReplyLimit: fields[44] as int? ?? 0,
+      fallbackToLocalModel: fields[45] as bool? ?? true,
       lastUpdated: fields[7] as DateTime,
     );
   }
@@ -52,7 +62,7 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
   @override
   void write(BinaryWriter writer, AppSettings obj) {
     writer
-      ..writeByte(29)
+      ..writeByte(39)
       ..writeByte(0)
       ..write(obj.masterEnabled)
       ..writeByte(1)
@@ -110,7 +120,27 @@ class AppSettingsAdapter extends TypeAdapter<AppSettings> {
       ..writeByte(34)
       ..write(obj.cerebrasApiKey)
       ..writeByte(35)
-      ..write(obj.cerebrasModel);
+      ..write(obj.cerebrasModel)
+      ..writeByte(37)
+      ..write(obj.groqApiKey)
+      ..writeByte(38)
+      ..write(obj.groqModel)
+      ..writeByte(39)
+      ..write(obj.geminiApiKey)
+      ..writeByte(40)
+      ..write(obj.geminiModel)
+      ..writeByte(36)
+      ..write(obj.trainingExamplesRaw)
+      ..writeByte(41)
+      ..write(obj.cerebrasReplyLimit)
+      ..writeByte(42)
+      ..write(obj.groqReplyLimit)
+      ..writeByte(43)
+      ..write(obj.geminiReplyLimit)
+      ..writeByte(44)
+      ..write(obj.localReplyLimit)
+      ..writeByte(45)
+      ..write(obj.fallbackToLocalModel);
   }
 
   @override

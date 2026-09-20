@@ -11,6 +11,7 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -80,9 +81,23 @@ class AppNotificationListenerService : NotificationListenerService() {
         val createdAt: Long = System.currentTimeMillis(),
     )
 
+    /** Data class for a reply pending delayed execution */
+    data class ScheduledReply(
+        val runnable: Runnable,
+        val wakeLock: PowerManager.WakeLock?,
+        val scheduledAt: Long,
+        val delayMs: Long,
+        val replyText: String,
+        val originalMessage: String,
+        val notificationKey: String,
+    )
+
     /** In-memory store of pending confirmations, keyed by confirmId */
     private val pendingReplies = ConcurrentHashMap<String, PendingReply>()
     private var confirmReceiver: BroadcastReceiver? = null
+
+    /** Map of active scheduled replies per sender to prevent overlapping/duplicate timers */
+    private val activeScheduledReplies = ConcurrentHashMap<String, ScheduledReply>()
 
     /** Cooldown map: sender -> timestamp to prevent reacting to our own sent messages */
     private val senderCooldown = ConcurrentHashMap<String, Long>()
@@ -97,6 +112,86 @@ class AppNotificationListenerService : NotificationListenerService() {
     private lateinit var messageBatcher: MessageBatcher
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private fun acquireWakeLock(tag: String, timeoutMs: Long): PowerManager.WakeLock? {
+        return try {
+            val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "AutoReplier:$tag")?.apply {
+                setReferenceCounted(false)
+                acquire(timeoutMs)
+                Log.d(TAG, "WakeLock acquired for $tag (${timeoutMs}ms)")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to acquire wake lock: ${e.message}")
+            null
+        }
+    }
+
+    private fun cancelScheduledReply(sender: String) {
+        val existing = activeScheduledReplies.remove(sender) ?: return
+        mainHandler.removeCallbacks(existing.runnable)
+        existing.wakeLock?.let { wl ->
+            if (wl.isHeld) {
+                try { wl.release() } catch (_: Exception) {}
+            }
+        }
+        Log.d(TAG, "Cancelled previous scheduled reply for sender '$sender'")
+    }
+
+    private fun scheduleDelayedReply(
+        key: String,
+        sender: String,
+        replyText: String,
+        isAiReply: Boolean = false,
+        aiModelType: String = "",
+        originalMessage: String = "",
+        onBeforeSend: (() -> Unit)? = null,
+    ) {
+        // Cancel any pending timer for this sender so multiple timers don't collide
+        cancelScheduledReply(sender)
+
+        senderCooldown[sender] = System.currentTimeMillis()
+        val delayMs = ruleEngine.getReplyDelayMs()
+        notifyReplyScheduled(sender, replyText, delayMs)
+
+        if (delayMs <= 0L) {
+            Log.d(TAG, "Delay is 0ms — sending reply immediately to '$sender'")
+            onBeforeSend?.invoke()
+            sendReply(key, sender, replyText, isAiReply, aiModelType)
+            return
+        }
+
+        // Keep CPU awake during delay (crucial for delays > 60s and when screen turns off)
+        val wakeLock = acquireWakeLock("Reply_${sender.hashCode()}", delayMs + 5000L)
+
+        val runnable = Runnable {
+            try {
+                activeScheduledReplies.remove(sender)
+                Log.d(TAG, "Delay timer (${delayMs}ms) finished for '$sender'. Sending reply...")
+                onBeforeSend?.invoke()
+                sendReply(key, sender, replyText, isAiReply, aiModelType)
+            } finally {
+                wakeLock?.let { wl ->
+                    if (wl.isHeld) {
+                        try { wl.release() } catch (_: Exception) {}
+                    }
+                }
+            }
+        }
+
+        activeScheduledReplies[sender] = ScheduledReply(
+            runnable = runnable,
+            wakeLock = wakeLock,
+            scheduledAt = System.currentTimeMillis(),
+            delayMs = delayMs,
+            replyText = replyText,
+            originalMessage = originalMessage,
+            notificationKey = key,
+        )
+
+        mainHandler.postDelayed(runnable, delayMs)
+        Log.d(TAG, "Scheduled reply to '$sender' in ${delayMs}ms with WakeLock")
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -109,6 +204,15 @@ class AppNotificationListenerService : NotificationListenerService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        activeScheduledReplies.values.forEach { scheduled ->
+            mainHandler.removeCallbacks(scheduled.runnable)
+            scheduled.wakeLock?.let { wl ->
+                if (wl.isHeld) {
+                    try { wl.release() } catch (_: Exception) {}
+                }
+            }
+        }
+        activeScheduledReplies.clear()
         messageBatcher.cancelAll()
         unregisterConfirmReceiver()
         instance = null
@@ -131,13 +235,26 @@ class AppNotificationListenerService : NotificationListenerService() {
         val message = if (bigText.isNotEmpty()) bigText else text
         val isGroupChat = isGroupChat(notification)
 
-        Log.d(TAG, "Notification from $appName: $title — $message")
+        val sender = normalizeSenderName(title, packageName)
+        Log.d(TAG, "Notification from $appName: sender=$sender title=$title — $message")
 
         // Sender cooldown: skip if we just handled this sender (prevents self-message loop)
         val now = System.currentTimeMillis()
-        val lastHandled = senderCooldown[title]
+        val lastHandled = senderCooldown[sender]
         if (lastHandled != null && now - lastHandled < senderCooldownMs) {
-            Log.d(TAG, "Skipping: sender '$title' on cooldown (${now - lastHandled}ms ago)")
+            Log.d(TAG, "Skipping: sender '$sender' on cooldown (${now - lastHandled}ms ago)")
+            return
+        }
+
+        // Avoid re-processing if an identical message from this sender is currently in delayed countdown
+        val active = activeScheduledReplies[sender]
+        if (active != null && active.originalMessage.isNotBlank() && active.originalMessage.trim().equals(message.trim(), ignoreCase = true)) {
+            Log.d(TAG, "Skipping: notification update for sender '$sender' with identical message already pending reply")
+            return
+        }
+
+        if (!ruleEngine.isSenderAllowedForAutoReply(sender)) {
+            Log.d(TAG, "Skipping: contact filter blocked sender '$sender'")
             return
         }
 
@@ -182,42 +299,43 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
 
         // Self-reply guard
-        if (ruleEngine.isSelfSentMessage(message)) {
+        if (ruleEngine.isSelfSentMessage(message, sender)) {
             Log.d(TAG, "Skipping: self-sent message detected")
             return
         }
 
         // Emit "got_message" to Flutter UI
-        notifyPipelineStatus("got_message", title)
+        notifyPipelineStatus("got_message", sender)
 
         // Rule matching
-        val rule = ruleEngine.findMatchingRule(message, sender = title)
+        val rule = ruleEngine.findMatchingRule(message, sender = sender)
 
         if (rule == null) {
             // Busy mode check — if user set a busy status from chatbot, use it
             val busyText = ruleEngine.getBusyReplyText()
             if (ruleEngine.isBusyModeActive() && busyText.isNotBlank()) {
                 Log.d(TAG, "Busy mode active, using busy reply: '$busyText'")
-                ConversationHistory.addMessage(title, "user", message)
+                ConversationHistory.addMessage(sender, "user", message)
                 if (ruleEngine.isConfirmBeforeReplyEnabled()) {
                     showConfirmationNotification(
                         notificationKey = sbn.key,
-                        sender = title,
+                        sender = sender,
                         replyText = busyText,
                         originalMessage = message,
                         isAiReply = false,
                         aiModelType = "busy_mode",
                     )
                 } else {
-                    senderCooldown[title] = System.currentTimeMillis()
-                    val delayMs = ruleEngine.getReplyDelayMs()
-                    notifyReplyScheduled(title, busyText, delayMs)
                     val replyToSend = busyText
-                    val senderName = title
-                    mainHandler.postDelayed({
-                        ConversationHistory.addMessage(senderName, "assistant", replyToSend)
-                        sendReply(sbn.key, senderName, replyToSend)
-                    }, delayMs)
+                    scheduleDelayedReply(
+                        key = sbn.key,
+                        sender = sender,
+                        replyText = replyToSend,
+                        originalMessage = message,
+                        onBeforeSend = {
+                            ConversationHistory.addMessage(sender, "assistant", replyToSend)
+                        },
+                    )
                 }
                 return
             }
@@ -230,16 +348,15 @@ class AppNotificationListenerService : NotificationListenerService() {
                     return
                 }
                 val modelType = ruleEngine.getAiModelType()
-                val normalizedName = normalizeSenderName(title, packageName)
                 // Batch window: wait 2s for more messages before firing
                 val batchWindowMs = 2000L
                 Log.d(TAG, "No rule matched. Buffering for AI batch reply (model: $modelType, batchWindow: ${batchWindowMs}ms)...")
 
                 // Emit "analysing" immediately so the UI shows the processing state
-                notifyPipelineStatus("analysing", title)
+                notifyPipelineStatus("analysing", sender)
 
                 messageBatcher.addMessage(
-                    sender = normalizedName,
+                    sender = sender,
                     message = message,
                     notificationKey = sbn.key,
                     packageName = packageName,
@@ -259,21 +376,21 @@ class AppNotificationListenerService : NotificationListenerService() {
 
         // Duplicate prevention
         if (ruleEngine.shouldPreventDuplicates() &&
-            ruleEngine.wasReplyRecentlySent(title, replyText)
+            ruleEngine.wasReplyRecentlySent(sender, replyText)
         ) return
 
         // Emit "analysing" then "reply_ready" now that a rule match was found
-        notifyPipelineStatus("analysing", title)
-        notifyPipelineStatus("reply_ready", title)
+        notifyPipelineStatus("analysing", sender)
+        notifyPipelineStatus("reply_ready", sender)
 
-        // Confirm before reply: show approval notification instead of sending directly
+        // Confirm before reply: show approval notification instead of sending directly.
+        // The countdown is NOT started here — it only starts once the send is actually
+        // scheduled (approval or timeout), so the visible timer always matches the real delay.
         if (ruleEngine.isConfirmBeforeReplyEnabled()) {
-            senderCooldown[title] = System.currentTimeMillis()
-            val delayMs = ruleEngine.getReplyDelayMs()
-            notifyReplyScheduled(title, replyText, delayMs)
+            senderCooldown[sender] = System.currentTimeMillis()
             showConfirmationNotification(
                 notificationKey = sbn.key,
-                sender = title,
+                sender = sender,
                 replyText = replyText,
                 originalMessage = message,
                 isAiReply = false,
@@ -283,12 +400,12 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
 
         // Delay + send
-        senderCooldown[title] = System.currentTimeMillis()
-        val delayMs = ruleEngine.getReplyDelayMs()
-        notifyReplyScheduled(title, replyText, delayMs)
-        mainHandler.postDelayed({
-            sendReply(sbn.key, title, replyText)
-        }, delayMs)
+        scheduleDelayedReply(
+            key = sbn.key,
+            sender = sender,
+            replyText = replyText,
+            originalMessage = message,
+        )
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
@@ -330,11 +447,8 @@ class AppNotificationListenerService : NotificationListenerService() {
             var sbn = activeNotifications?.find { it.key == key }
 
             // If the original notification is gone or has no reply action, find one that does
-            if (sbn != null && !hasReplyAction(sbn) && isAiReply) {
-                Log.d(TAG, "Notification $key has no reply action, searching for one with reply action...")
-                sbn = findNotificationWithReplyAction(sender)
-            } else if (sbn == null && isAiReply) {
-                Log.d(TAG, "Notification not found for key: $key, searching by sender...")
+            if (sbn == null || !hasReplyAction(sbn)) {
+                Log.d(TAG, "Notification $key is missing or has no reply action, searching for active notification with reply action for sender '$sender'...")
                 sbn = findNotificationWithReplyAction(sender)
             }
 
@@ -428,185 +542,244 @@ class AppNotificationListenerService : NotificationListenerService() {
 
         Log.d(TAG, "sendBatchedAiReply: sender=$sender, ${messages.size} messages, history=${history.size} entries, model=$modelType")
 
-        val onBatchResult: (String?, Int, Int, Int, Int, String?) -> Unit = { aiReply, tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error ->
-            if (tokensUsed > 0) {
-                ruleEngine.saveAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
-                notifyAiUsage(tokensUsed, tokensRemaining, tokensLimit, resetInSeconds, error)
+        fun deliverReply(replyText: String, effectiveModelType: String, tokensUsed: Int) {
+            for (msg in messages) {
+                ConversationHistory.addMessage(sender, "user", msg)
             }
+            ConversationHistory.addMessage(sender, "assistant", replyText)
 
-            if (aiReply != null && aiReply.isNotBlank()) {
-                for (msg in messages) {
-                    ConversationHistory.addMessage(sender, "user", msg)
-                }
-                ConversationHistory.addMessage(sender, "assistant", aiReply)
+            // Emit "reply_ready" before scheduling the send
+            notifyPipelineStatus("reply_ready", sender)
 
-                // Emit "reply_ready" before scheduling the send
-                notifyPipelineStatus("reply_ready", sender)
-
-                // Confirm before reply: show approval notification instead of sending directly
-                if (ruleEngine.isConfirmBeforeReplyEnabled()) {
-                    senderCooldown[sender] = System.currentTimeMillis()
-                    val delayMs = ruleEngine.getReplyDelayMs()
-                    notifyReplyScheduled(sender, aiReply, delayMs)
-                    showConfirmationNotification(
-                        notificationKey = batch.latestNotificationKey,
-                        sender = sender,
-                        replyText = aiReply,
-                        originalMessage = messages.lastOrNull() ?: "",
-                        isAiReply = true,
-                        aiModelType = modelType,
-                    )
-                } else {
-                    // Apply the user's configured reply delay on top of the batch window
-                    senderCooldown[sender] = System.currentTimeMillis()
-                    val delayMs = ruleEngine.getReplyDelayMs()
-                    notifyReplyScheduled(sender, aiReply, delayMs)
-                    mainHandler.postDelayed({
-                        sendReply(batch.latestNotificationKey, sender, aiReply, isAiReply = true, aiModelType = modelType)
-                    }, delayMs)
-                }
+            // Confirm before reply: show approval notification instead of sending directly.
+            // Countdown starts only when the send is actually scheduled (approval or timeout).
+            if (ruleEngine.isConfirmBeforeReplyEnabled()) {
+                senderCooldown[sender] = System.currentTimeMillis()
+                showConfirmationNotification(
+                    notificationKey = batch.latestNotificationKey,
+                    sender = sender,
+                    replyText = replyText,
+                    originalMessage = messages.lastOrNull() ?: "",
+                    isAiReply = true,
+                    aiModelType = effectiveModelType,
+                )
             } else {
-                Log.w(TAG, "Batched AI returned empty reply for sender=$sender")
+                // Apply the user's configured reply delay on top of the batch window
+                scheduleDelayedReply(
+                    key = batch.latestNotificationKey,
+                    sender = sender,
+                    replyText = replyText,
+                    isAiReply = true,
+                    aiModelType = effectiveModelType,
+                    originalMessage = messages.lastOrNull() ?: "",
+                )
             }
         }
 
+        fun tryLocalFallback(cloudError: String?) {
+            if (!ruleEngine.isFallbackToLocalEnabled()) {
+                Log.w(TAG, "Local fallback is disabled in settings. Skipping reply for $sender")
+                return
+            }
+
+            val localModelId = ruleEngine.getSelectedLocalModel()
+            val phiService = PhiLocalService.getInstance(applicationContext)
+
+            if (!phiService.isModelAvailable(localModelId)) {
+                val errMsg = "Cloud AI ($modelType) failed: ${cloudError ?: "error"}. Local model '$localModelId' is not downloaded."
+                Log.e(TAG, errMsg)
+                ruleEngine.saveAiUsage(modelType, 0, 0, 0, 0, errMsg)
+                notifyAiUsage(0, 0, 0, 0, errMsg)
+                mainHandler.post {
+                    methodChannel?.invokeMethod("onReplyFailed", errMsg)
+                }
+                return
+            }
+
+            Log.i(TAG, "Cloud AI ($modelType) failed ($cloudError). Falling back to local model: $localModelId for sender: $sender")
+            phiService.getAiReplyBatch(
+                modelId = localModelId,
+                senderName = sender,
+                incomingMessages = messages,
+                systemPrompt = finalSystemPrompt,
+                conversationHistory = history
+            ) { localReply, localUsage ->
+                if (!localReply.isNullOrBlank()) {
+                    Log.i(TAG, "Local model fallback succeeded for $sender! Generated reply: '$localReply'")
+                    deliverReply(localReply, "phi_local", localUsage?.tokensUsed ?: 0)
+                } else {
+                    val localErr = "Local fallback also failed: ${localUsage?.error ?: "Empty response"}"
+                    Log.e(TAG, localErr)
+                    ruleEngine.saveAiUsage("phi_local", 0, 0, 0, 0, localErr)
+                    notifyAiUsage(0, 0, 0, 0, localErr)
+                }
+            }
+        }
+
+        val cloudCallbackAdapter: (String?, PhiLocalService.AiUsage?) -> Unit = { aiReply, usage ->
+            val tokensUsed = usage?.tokensUsed ?: 0
+            val error = usage?.error
+            val isLimitReached = usage?.isLimitReached ?: false
+
+            // Save usage and rate-limit data regardless of tokensUsed (essential for 429/quota tracking)
+            ruleEngine.saveAiUsage(
+                provider = modelType,
+                tokensUsed = tokensUsed,
+                tokensRemaining = usage?.tokensRemaining ?: 0,
+                tokensLimit = usage?.tokensLimit ?: 0,
+                resetInSeconds = usage?.resetInSeconds ?: 0,
+                error = error,
+                requestsRemaining = usage?.requestsRemaining,
+                requestsLimit = usage?.requestsLimit,
+                isLimitReached = isLimitReached,
+            )
+            notifyAiUsage(
+                tokensUsed = tokensUsed,
+                tokensRemaining = usage?.tokensRemaining ?: 0,
+                tokensLimit = usage?.tokensLimit ?: 0,
+                resetInSeconds = usage?.resetInSeconds ?: 0,
+                error = error,
+                requestsRemaining = usage?.requestsRemaining,
+                requestsLimit = usage?.requestsLimit,
+                isLimitReached = isLimitReached,
+            )
+
+            if (!aiReply.isNullOrBlank()) {
+                deliverReply(aiReply, modelType, tokensUsed)
+            } else {
+                Log.w(TAG, "Cloud AI ($modelType) returned empty/error: $error. Attempting local model fallback...")
+                tryLocalFallback(error)
+            }
+        }
+
+        val localCallbackAdapter: (String?, PhiLocalService.AiUsage?) -> Unit = { aiReply, usage ->
+            val tokensUsed = usage?.tokensUsed ?: 0
+            val error = usage?.error
+
+            if (tokensUsed > 0) {
+                ruleEngine.saveAiUsage(
+                    modelType,
+                    tokensUsed,
+                    0,
+                    0,
+                    0,
+                    error,
+                )
+                notifyAiUsage(tokensUsed, 0, 0, 0, error)
+            }
+
+            if (!aiReply.isNullOrBlank()) {
+                deliverReply(aiReply, "phi_local", tokensUsed)
+            } else {
+                Log.w(TAG, "Batched local AI returned empty reply for sender=$sender error=${error ?: "none"}")
+            }
+        }
+
+        // Check if model has reached daily limit before making network request
+        if (modelType != "phi_local" && ruleEngine.isAiLimitReached(modelType)) {
+            Log.w(TAG, "Daily limit reached for $modelType. Falling back to local model immediately.")
+            tryLocalFallback("Daily limit reached for $modelType")
+            return
+        }
+
         when (modelType) {
-            "phi_local" -> {
+            "cerebras_api" -> {
+                val apiKey = ruleEngine.getCerebrasApiKey()
+                if (apiKey.isBlank()) {
+                    Log.w(TAG, "Cerebras API key is blank. Falling back to local model immediately.")
+                    tryLocalFallback("Cerebras API key is missing")
+                } else {
+                    val model = ruleEngine.getCerebrasModel()
+                    CloudAiService.getInstance(applicationContext).generateReply(
+                        engineType = "cerebras_api",
+                        apiKey = apiKey,
+                        model = model,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history,
+                        callback = cloudCallbackAdapter
+                    )
+                }
+            }
+            "groq_api" -> {
+                val apiKey = ruleEngine.getGroqApiKey()
+                if (apiKey.isBlank()) {
+                    Log.w(TAG, "Groq API key is blank. Falling back to local model immediately.")
+                    tryLocalFallback("Groq API key is missing")
+                } else {
+                    val model = ruleEngine.getGroqModel()
+                    CloudAiService.getInstance(applicationContext).generateReply(
+                        engineType = "groq_api",
+                        apiKey = apiKey,
+                        model = model,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history,
+                        callback = cloudCallbackAdapter
+                    )
+                }
+            }
+            "gemini_api" -> {
+                val apiKey = ruleEngine.getGeminiApiKey()
+                if (apiKey.isBlank()) {
+                    Log.w(TAG, "Gemini API key is blank. Falling back to local model immediately.")
+                    tryLocalFallback("Gemini API key is missing")
+                } else {
+                    val model = ruleEngine.getGeminiModel()
+                    CloudAiService.getInstance(applicationContext).generateReply(
+                        engineType = "gemini_api",
+                        apiKey = apiKey,
+                        model = model,
+                        senderName = sender,
+                        incomingMessages = messages,
+                        systemPrompt = finalSystemPrompt,
+                        conversationHistory = history,
+                        callback = cloudCallbackAdapter
+                    )
+                }
+            }
+            else -> {
                 val selectedModel = ruleEngine.getSelectedLocalModel()
                 PhiLocalService.getInstance(applicationContext).getAiReplyBatch(
                     modelId = selectedModel,
                     senderName = sender,
                     incomingMessages = messages,
                     systemPrompt = finalSystemPrompt,
-                    conversationHistory = history
-                ) { aiReply, usage ->
-                    onBatchResult.invoke(
-                        aiReply,
-                        usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                        usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                    )
-                }
-            }
-            "cerebras_api" -> {
-                val apiKey = ruleEngine.getCerebrasApiKey()
-                val model = ruleEngine.getCerebrasModel()
-                PhiLocalService.getInstance(applicationContext).getCerebrasReplyBatch(
-                    apiKey = apiKey,
-                    model = model,
-                    senderName = sender,
-                    incomingMessages = messages,
-                    systemPrompt = finalSystemPrompt,
-                    conversationHistory = history
-                ) { aiReply, usage ->
-                    onBatchResult.invoke(
-                        aiReply,
-                        usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                        usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                    )
-                }
-            }
-            "auto_local_first" -> {
-                val service = PhiLocalService.getInstance(applicationContext)
-                val apiKey = ruleEngine.getCerebrasApiKey()
-                val cerebrasModel = ruleEngine.getCerebrasModel()
-                val selectedLocalModel = ruleEngine.getSelectedLocalModel()
-                val isHard = service.isMessageHardOrConfusing(messages)
-
-                if (isHard && apiKey.isNotBlank()) {
-                    Log.d(TAG, "Message is hard/confusing, escalating directly to Cerebras API for $sender")
-                    service.getCerebrasReplyBatch(
-                        apiKey = apiKey,
-                        model = cerebrasModel,
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history
-                    ) { aiReply, usage ->
-                        onBatchResult.invoke(
-                            aiReply,
-                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                        )
-                    }
-                } else if (service.isModelAvailable(selectedLocalModel)) {
-                    Log.d(TAG, "Attempting local model first for $sender")
-                    service.getAiReplyBatch(
-                        modelId = selectedLocalModel,
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history
-                    ) { localReply, usage ->
-                        val failed = usage?.error != null || localReply.isNullOrBlank()
-                        if (failed && apiKey.isNotBlank()) {
-                            Log.d(TAG, "Local model failed (${usage?.error}), falling back to Cerebras API for $sender")
-                            service.getCerebrasReplyBatch(
-                                apiKey = apiKey,
-                                model = cerebrasModel,
-                                senderName = sender,
-                                incomingMessages = messages,
-                                systemPrompt = finalSystemPrompt,
-                                conversationHistory = history
-                            ) { apiReply, apiUsage ->
-                                onBatchResult.invoke(
-                                    apiReply,
-                                    apiUsage?.tokensUsed ?: 0, apiUsage?.tokensRemaining ?: 0,
-                                    apiUsage?.tokensLimit ?: 0, apiUsage?.resetInSeconds ?: 0, apiUsage?.error
-                                )
-                            }
-                        } else {
-                            onBatchResult.invoke(
-                                localReply,
-                                usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                                usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                            )
-                        }
-                    }
-                } else if (apiKey.isNotBlank()) {
-                    Log.d(TAG, "Local model not downloaded, routing to Cerebras API for $sender")
-                    service.getCerebrasReplyBatch(
-                        apiKey = apiKey,
-                        model = cerebrasModel,
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history
-                    ) { aiReply, usage ->
-                        onBatchResult.invoke(
-                            aiReply,
-                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                        )
-                    }
-                } else {
-                    service.getAiReplyBatch(
-                        modelId = selectedLocalModel,
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history
-                    ) { aiReply, usage ->
-                        onBatchResult.invoke(
-                            aiReply,
-                            usage?.tokensUsed ?: 0, usage?.tokensRemaining ?: 0,
-                            usage?.tokensLimit ?: 0, usage?.resetInSeconds ?: 0, usage?.error
-                        )
-                    }
-                }
-            }
-            else -> {
-                Log.w(TAG, "Unknown AI model type: $modelType")
+                    conversationHistory = history,
+                    callback = localCallbackAdapter
+                )
             }
         }
     }
 
-    private fun notifyAiUsage(tokensUsed: Int, tokensRemaining: Int, tokensLimit: Int, resetInSeconds: Int, error: String?) {
+    private fun notifyAiUsage(
+        tokensUsed: Int,
+        tokensRemaining: Int,
+        tokensLimit: Int,
+        resetInSeconds: Int,
+        error: String?,
+        requestsRemaining: Int? = null,
+        requestsLimit: Int? = null,
+        isLimitReached: Boolean = false,
+    ) {
         val usageData = org.json.JSONObject().apply {
             put("tokensUsed", tokensUsed)
             put("tokensRemaining", tokensRemaining)
             put("tokensLimit", tokensLimit)
             put("resetInSeconds", resetInSeconds)
             put("error", error ?: "")
+            if (requestsRemaining != null) put("requestsRemaining", requestsRemaining)
+            if (requestsLimit != null) put("requestsLimit", requestsLimit)
+            put("isLimitReached", isLimitReached)
+
+            val statsObj = org.json.JSONObject()
+            val providerStats = ruleEngine.getAiProviderStats()
+            for ((prov, statMap) in providerStats) {
+                statsObj.put(prov, org.json.JSONObject(statMap))
+            }
+            put("providerStats", statsObj)
         }
         mainHandler.post {
             methodChannel?.invokeMethod("onAiUsageUpdate", usageData.toString())
@@ -629,10 +802,15 @@ class AppNotificationListenerService : NotificationListenerService() {
      * Returns null if none found.
      */
     private fun findNotificationWithReplyAction(sender: String): StatusBarNotification? {
-        return activeNotifications?.filter {
-            it.packageName in supportedPackages &&
-            it.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.contains(sender, ignoreCase = true) == true &&
-            hasReplyAction(it)
+        val targetSender = sender.trim().lowercase()
+        return activeNotifications?.filter { sbn ->
+            if (sbn.packageName !in supportedPackages) return@filter false
+            if (!hasReplyAction(sbn)) return@filter false
+            val title = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+            val normalizedTitle = normalizeSenderName(title, sbn.packageName).lowercase()
+            normalizedTitle == targetSender ||
+                normalizedTitle.contains(targetSender) ||
+                targetSender.contains(normalizedTitle)
         }?.lastOrNull()
     }
 
@@ -692,15 +870,14 @@ class AppNotificationListenerService : NotificationListenerService() {
                 when (action) {
                     ACTION_APPROVE -> {
                         Log.d(TAG, "User APPROVED reply to '${pending.sender}': '${pending.replyText}'")
-                        mainHandler.postDelayed({
-                            sendReply(
-                                pending.notificationKey,
-                                pending.sender,
-                                pending.replyText,
-                                pending.isAiReply,
-                                pending.aiModelType,
-                            )
-                        }, ruleEngine.getReplyDelayMs())
+                        scheduleDelayedReply(
+                            key = pending.notificationKey,
+                            sender = pending.sender,
+                            replyText = pending.replyText,
+                            isAiReply = pending.isAiReply,
+                            aiModelType = pending.aiModelType,
+                            originalMessage = pending.originalMessage,
+                        )
                     }
                     ACTION_DENY -> {
                         Log.d(TAG, "User DENIED reply to '${pending.sender}'")
@@ -823,18 +1000,21 @@ class AppNotificationListenerService : NotificationListenerService() {
             }
         }
 
-        // Auto-send after timeout if not confirmed
+        // Auto-send after timeout if not confirmed. Route through scheduleDelayedReply so the
+        // configured reply delay is still applied and the visible countdown reflects the real
+        // send time — the reply must never go out before the timer the user sees ends.
         mainHandler.postDelayed({
             val pending = pendingReplies.remove(confirmId)
             if (pending != null) {
-                Log.d(TAG, "Confirmation for '$sender' timed out — sending automatically")
+                Log.d(TAG, "Confirmation for '$sender' timed out — scheduling auto-reply with delayed send")
                 nm.cancel(notifId)
-                sendReply(
-                    pending.notificationKey,
-                    pending.sender,
-                    pending.replyText,
-                    pending.isAiReply,
-                    pending.aiModelType,
+                scheduleDelayedReply(
+                    key = pending.notificationKey,
+                    sender = pending.sender,
+                    replyText = pending.replyText,
+                    isAiReply = pending.isAiReply,
+                    aiModelType = pending.aiModelType,
+                    originalMessage = pending.originalMessage,
                 )
             }
         }, CONFIRM_TIMEOUT_MS)

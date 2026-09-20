@@ -15,6 +15,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        tools:ignore="ScheduleExactAlarm" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"
+        tools:ignore="ExactAlarm" />
 
     <application
         android:label="Auto Reply Assistant"
@@ -88,6 +93,11 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- Note reminder receiver: fires notifications 5 minutes before events -->
+        <receiver
+            android:name=".reminder.NoteReminderReceiver"
+            android:exported="false" />
 
         <meta-data
             android:name="flutterEmbedding"

@@ -8,12 +8,14 @@ import android.provider.Settings
 import androidx.annotation.NonNull
 import com.example.auto_reply_assistant.service.AppNotificationListenerService
 import com.example.auto_reply_assistant.service.AutoReplyForegroundService
+import com.example.auto_reply_assistant.service.CloudAiService
 import com.example.auto_reply_assistant.service.ConversationHistory
 import com.example.auto_reply_assistant.service.PhiLocalService
 import com.example.auto_reply_assistant.service.RuleEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.example.auto_reply_assistant.reminder.NoteReminderScheduler
 
 class MainActivity : FlutterActivity() {
 
@@ -109,6 +111,23 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
 
+                // Flutter syncs note reminders (meeting/call/deadline) — alarms are
+                // armed natively so they fire even when the Flutter UI is closed.
+                "syncNoteReminders" -> {
+                    val reminders = call.argument<List<Map<String, Any>>>("reminders")
+                    NoteReminderScheduler.getInstance(applicationContext)
+                        .syncReminders(reminders.orEmpty())
+                    result.success(null)
+                }
+
+                "cancelNoteReminder" -> {
+                    val id = call.argument<String>("id")
+                    if (id != null) {
+                        NoteReminderScheduler.getInstance(applicationContext).cancelReminder(id)
+                    }
+                    result.success(null)
+                }
+
                 // Chat with on-device local model
                 "chatWithPhi" -> {
                     val modelId = call.argument<String>("modelId") ?: "llama_3_2_1b"
@@ -129,10 +148,168 @@ class MainActivity : FlutterActivity() {
                         systemPrompt = systemPrompt,
                         conversationHistory = history
                     ) { reply, usage ->
-                        if (reply != null) {
-                            result.success(reply)
-                        } else {
-                            result.error("INFERENCE_FAILED", usage?.error ?: "Local model returned empty", null)
+                        runOnUiThread {
+                            if (reply != null) {
+                                result.success(reply)
+                            } else {
+                                result.error("INFERENCE_FAILED", usage?.error ?: "Local model returned empty", null)
+                            }
+                        }
+                    }
+                }
+
+                // Chat with configured AI engine with automatic local fallback if API key fails
+                "chatWithAi" -> {
+                    val engineType = call.argument<String>("engineType") ?: ruleEngine.getAiModelType()
+                    val localModelId = call.argument<String>("localModelId") ?: ruleEngine.getSelectedLocalModel()
+                    val message = call.argument<String>("message") ?: ""
+                    val systemPrompt = call.argument<String>("systemPrompt") ?: ruleEngine.getAiSystemPrompt()
+                    val historyRaw = call.argument<List<Map<String, String>>>("history") ?: emptyList()
+
+                    val history = historyRaw.mapNotNull { m ->
+                        val role = m["role"] ?: return@mapNotNull null
+                        val content = m["content"] ?: return@mapNotNull null
+                        ConversationHistory.ChatMessage(role, content)
+                    }
+
+                    fun invokeLocalFallback(reason: String?) {
+                        val phiService = PhiLocalService.getInstance(applicationContext)
+                        if (!phiService.isModelAvailable(localModelId)) {
+                            runOnUiThread {
+                                result.error("FALLBACK_UNAVAILABLE", "Cloud AI failed ($reason), and local model '$localModelId' is not downloaded. Please download it in Settings.", null)
+                            }
+                            return
+                        }
+                        phiService.getAiReply(
+                            modelId = localModelId,
+                            senderName = "User",
+                            incomingMessage = message,
+                            systemPrompt = systemPrompt,
+                            conversationHistory = history
+                        ) { reply, usage ->
+                            runOnUiThread {
+                                if (reply != null) {
+                                    result.success(mapOf(
+                                        "reply" to reply,
+                                        "model" to "phi_local",
+                                        "fallback" to true,
+                                        "fallbackReason" to (reason ?: "API error")
+                                    ))
+                                } else {
+                                    result.error("INFERENCE_FAILED", usage?.error ?: "Local model returned empty", null)
+                                }
+                            }
+                        }
+                    }
+
+                    when (engineType) {
+                        "cerebras_api" -> {
+                            val apiKey = ruleEngine.getCerebrasApiKey()
+                            if (apiKey.isBlank()) {
+                                invokeLocalFallback("Cerebras API key is missing")
+                            } else {
+                                val model = ruleEngine.getCerebrasModel()
+                                CloudAiService.getInstance(applicationContext).generateReply(
+                                    engineType = "cerebras_api",
+                                    apiKey = apiKey,
+                                    model = model,
+                                    senderName = "User",
+                                    incomingMessages = listOf(message),
+                                    systemPrompt = systemPrompt,
+                                    conversationHistory = history
+                                ) { reply, usage ->
+                                    if (reply != null) {
+                                        runOnUiThread {
+                                            result.success(mapOf(
+                                                "reply" to reply,
+                                                "model" to engineType,
+                                                "fallback" to false
+                                            ))
+                                        }
+                                    } else {
+                                        invokeLocalFallback(usage?.error ?: "Cerebras API error")
+                                    }
+                                }
+                            }
+                        }
+                        "groq_api" -> {
+                            val apiKey = ruleEngine.getGroqApiKey()
+                            if (apiKey.isBlank()) {
+                                invokeLocalFallback("Groq API key is missing")
+                            } else {
+                                val model = ruleEngine.getGroqModel()
+                                CloudAiService.getInstance(applicationContext).generateReply(
+                                    engineType = "groq_api",
+                                    apiKey = apiKey,
+                                    model = model,
+                                    senderName = "User",
+                                    incomingMessages = listOf(message),
+                                    systemPrompt = systemPrompt,
+                                    conversationHistory = history
+                                ) { reply, usage ->
+                                    if (reply != null) {
+                                        runOnUiThread {
+                                            result.success(mapOf(
+                                                "reply" to reply,
+                                                "model" to engineType,
+                                                "fallback" to false
+                                            ))
+                                        }
+                                    } else {
+                                        invokeLocalFallback(usage?.error ?: "Groq API error")
+                                    }
+                                }
+                            }
+                        }
+                        "gemini_api" -> {
+                            val apiKey = ruleEngine.getGeminiApiKey()
+                            if (apiKey.isBlank()) {
+                                invokeLocalFallback("Gemini API key is missing")
+                            } else {
+                                val model = ruleEngine.getGeminiModel()
+                                CloudAiService.getInstance(applicationContext).generateReply(
+                                    engineType = "gemini_api",
+                                    apiKey = apiKey,
+                                    model = model,
+                                    senderName = "User",
+                                    incomingMessages = listOf(message),
+                                    systemPrompt = systemPrompt,
+                                    conversationHistory = history
+                                ) { reply, usage ->
+                                    if (reply != null) {
+                                        runOnUiThread {
+                                            result.success(mapOf(
+                                                "reply" to reply,
+                                                "model" to engineType,
+                                                "fallback" to false
+                                            ))
+                                        }
+                                    } else {
+                                        invokeLocalFallback(usage?.error ?: "Gemini API error")
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            PhiLocalService.getInstance(applicationContext).getAiReply(
+                                modelId = localModelId,
+                                senderName = "User",
+                                incomingMessage = message,
+                                systemPrompt = systemPrompt,
+                                conversationHistory = history
+                            ) { reply, usage ->
+                                runOnUiThread {
+                                    if (reply != null) {
+                                        result.success(mapOf(
+                                            "reply" to reply,
+                                            "model" to "phi_local",
+                                            "fallback" to false
+                                        ))
+                                    } else {
+                                        result.error("INFERENCE_FAILED", usage?.error ?: "Local model returned empty", null)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

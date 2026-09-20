@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/chat_message.dart';
 import '../providers/chat_provider.dart';
 
 class ChatScreen extends ConsumerWidget {
@@ -77,11 +78,8 @@ class ChatScreen extends ConsumerWidget {
                         itemCount: messages.length,
                         itemBuilder: (context, index) {
                           final msg = messages[index];
-                          final isUser = msg.role == 'user';
                           return _ChatBubble(
-                            message: msg.content,
-                            isUser: isUser,
-                            model: msg.model,
+                            chatMessage: msg,
                             colorScheme: colorScheme,
                           );
                         },
@@ -129,21 +127,20 @@ class ChatScreen extends ConsumerWidget {
   }
 }
 
-class _ChatBubble extends StatelessWidget {
-  final String message;
-  final bool isUser;
-  final String? model;
+class _ChatBubble extends ConsumerWidget {
+  final ChatMessage chatMessage;
   final ColorScheme colorScheme;
 
   const _ChatBubble({
-    required this.message,
-    required this.isUser,
-    this.model,
+    required this.chatMessage,
     required this.colorScheme,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isUser = chatMessage.role == 'user';
+    final model = chatMessage.model;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -163,7 +160,7 @@ class _ChatBubble extends StatelessWidget {
           Flexible(
             child: Container(
               constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.75,
+                maxWidth: MediaQuery.of(context).size.width * 0.78,
               ),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
@@ -180,20 +177,48 @@ class _ChatBubble extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!isUser && model != null && model!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        model!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.primary,
-                          fontWeight: FontWeight.w500,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      if (!isUser && model != null && model.isNotEmpty)
+                        Text(
+                          model,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                      ),
-                    ),
+                      if (!isUser && chatMessage.isTrained)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.green, width: 0.8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle, size: 10, color: Colors.green),
+                              SizedBox(width: 3),
+                              Text(
+                                'Trained',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (!isUser && ((model != null && model.isNotEmpty) || chatMessage.isTrained))
+                    const SizedBox(height: 4),
                   Text(
-                    message,
+                    chatMessage.content,
                     style: TextStyle(
                       fontSize: 15,
                       color: isUser
@@ -201,12 +226,121 @@ class _ChatBubble extends StatelessWidget {
                           : colorScheme.onSurface,
                     ),
                   ),
+                  if (!isUser) ...[
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: InkWell(
+                        onTap: () => _showEditReplyDialog(context, ref, chatMessage),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.edit_note,
+                                size: 16,
+                                color: colorScheme.primary,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                chatMessage.isTrained ? 'Edit Training' : 'Train AI',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           if (isUser) const SizedBox(width: 8),
         ],
+      ),
+    );
+  }
+
+  void _showEditReplyDialog(BuildContext context, WidgetRef ref, ChatMessage msg) {
+    final controller = TextEditingController(text: msg.content);
+    bool createRule = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.school, color: Colors.blue),
+                SizedBox(width: 8),
+                Text('Train AI Response', style: TextStyle(fontSize: 18)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Correct this reply. The AI will learn your style and respond like this in future chats and auto-replies.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Preferred AI Reply',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Also save as Auto-Reply Keyword Rule', style: TextStyle(fontSize: 13)),
+                  value: createRule,
+                  onChanged: (val) => setState(() => createRule = val ?? false),
+                  controlAffinity: ListTileControlAffinity.leading,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final newText = controller.text.trim();
+                  if (newText.isNotEmpty) {
+                    await ref.read(chatProvider.notifier).correctAiReply(
+                          msg.id,
+                          newText,
+                          createRule: createRule,
+                        );
+                    if (ctx.mounted) {
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('✅ AI trained! Future responses will follow this style.'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  }
+                },
+                child: const Text('Train AI'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

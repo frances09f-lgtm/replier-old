@@ -222,19 +222,21 @@ object ConversationTranscriptBuilder {
 
         val maxChars = maxTokens * CHARS_PER_TOKEN
         var charCount = 0
-        var cutoffIndex = messages.size
+        // Start at 0: if no message exceeds budget, we keep everything (subList(0, size))
+        var cutoffIndex = 0
 
         // Walk from the end, accumulating char counts
         for (i in messages.size - 1 downTo 0) {
             charCount += messages[i].content.length
             if (charCount > maxChars) {
+                // Budget exceeded — drop everything before index i+1
                 cutoffIndex = i + 1
                 break
             }
         }
 
         // Always include at least the last message (the current user input)
-        val result = messages.subList(cutoffIndex.coerceAtLeast(0), messages.size).toList()
+        val result = messages.subList(cutoffIndex.coerceAtMost(messages.size - 1), messages.size).toList()
         return result
     }
 }

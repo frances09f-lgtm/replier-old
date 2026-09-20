@@ -4,6 +4,7 @@ import '../models/rule.dart';
 import '../models/app_settings.dart';
 import '../models/reply_log.dart';
 import '../models/chat_message.dart';
+import '../models/note.dart';
 import '../core/constants.dart';
 
 /// Hive configuration and initialization
@@ -29,6 +30,9 @@ class HiveConfig {
     if (!Hive.isAdapterRegistered(3)) {
       Hive.registerAdapter(ChatMessageAdapter());
     }
+    if (!Hive.isAdapterRegistered(4)) {
+      Hive.registerAdapter(NoteAdapter());
+    }
     
     // Open boxes (data persists across app launches)
     await Hive.openBox<Rule>(AppConstants.rulesBox);
@@ -36,6 +40,7 @@ class HiveConfig {
     await Hive.openBox<ReplyLog>(AppConstants.logsBox);
     await Hive.openBox(AppConstants.statsBox);
     await Hive.openBox<ChatMessage>(AppConstants.chatBox);
+    await Hive.openBox<Note>(AppConstants.notesBox);
     
     print('Hive boxes initialized');
   }
@@ -65,6 +70,27 @@ class HiveConfig {
     return Hive.box<ChatMessage>(AppConstants.chatBox);
   }
 
+  /// Check if notes box is currently open
+  static bool isNotesBoxOpen() {
+    return Hive.isBoxOpen(AppConstants.notesBox);
+  }
+
+  /// Get notes box
+  static Box<Note> getNotesBox() {
+    return Hive.box<Note>(AppConstants.notesBox);
+  }
+
+  /// Ensure notes box is open (safe for hot-reloads without restart)
+  static Future<Box<Note>> ensureNotesBoxOpen() async {
+    if (!Hive.isAdapterRegistered(4)) {
+      Hive.registerAdapter(NoteAdapter());
+    }
+    if (!Hive.isBoxOpen(AppConstants.notesBox)) {
+      return await Hive.openBox<Note>(AppConstants.notesBox);
+    }
+    return getNotesBox();
+  }
+
   /// Close all boxes
   static Future<void> close() async {
     await Hive.close();
@@ -80,5 +106,6 @@ class HiveConfig {
     await getRulesBox().clear();
     await getSettingsBox().clear();
     await getLogsBox().clear();
+    await getNotesBox().clear();
   }
 }

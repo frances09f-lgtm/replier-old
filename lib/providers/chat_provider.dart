@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 import '../core/hive_config.dart';
 import '../models/app_settings.dart';
 import '../models/chat_message.dart';
+import '../models/rule.dart';
+import 'rule_provider.dart';
 import 'settings_provider.dart';
 
 final chatProvider = StateNotifierProvider<ChatNotifier, List<ChatMessage>>((ref) {
@@ -44,9 +47,11 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     try {
       final settings = _ref.read(appSettingsProvider);
 
-      final reply = await _callPhi(text, settings);
+      final aiResponse = await _callAi(text, settings);
       final aiMessage = ChatMessage(
-        role: 'assistant', content: reply, model: 'phi_local',
+        role: 'assistant',
+        content: aiResponse.reply,
+        model: aiResponse.model,
       );
       await box.put(aiMessage.id, aiMessage);
       state = [...state, aiMessage];
@@ -180,22 +185,6 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     print('[Chat] Busy mode set: reply="$replyText", duration=${durationMinutes}min, until=$untilTimestamp');
   }
 
-  List<Map<String, dynamic>> _buildMessages(String text) {
-    final history = state
-        .where((m) => m.role == 'user' || m.role == 'assistant')
-        .map((m) => {
-              'role': m.role,
-              'content': _sanitize(m.content),
-            })
-        .toList();
-
-    final recent = history.length > 30
-        ? history.sublist(history.length - 30)
-        : history;
-
-    return [...recent, {'role': 'user', 'content': text}];
-  }
-
   String _sanitize(String s) {
     final sb = StringBuffer();
     for (final rune in s.runes) {
@@ -210,7 +199,8 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
     return sb.toString();
   }
 
-  Future<String> _callPhi(String text, AppSettings settings) async {
+  Future<({String reply, String model, bool fallback, String? fallbackReason})> _callAi(
+      String text, AppSettings settings) async {
     const channel = MethodChannel('com.example.auto_reply_assistant/native');
     try {
       final history = state
@@ -225,23 +215,108 @@ class ChatNotifier extends StateNotifier<List<ChatMessage>> {
           ? history.sublist(history.length - 10)
           : history;
 
+      final fullPrompt = _sanitize(settings.aiSystemPrompt + settings.formatTrainingPrompt());
+
+      final res = await channel.invokeMapMethod<String, dynamic>('chatWithAi', {
+        'engineType': settings.aiModelType,
+        'localModelId': settings.selectedLocalModel,
+        'message': text,
+        'systemPrompt': fullPrompt,
+        'history': recent,
+      });
+
+      if (res != null) {
+        final reply = res['reply'] as String? ?? '';
+        final model = res['model'] as String? ?? 'phi_local';
+        final fallback = res['fallback'] as bool? ?? false;
+        final fallbackReason = res['fallbackReason'] as String?;
+        if (reply.isNotEmpty) {
+          return (reply: reply, model: model, fallback: fallback, fallbackReason: fallbackReason);
+        }
+      }
+
+      // Fallback: call legacy chatWithPhi
       final result = await channel.invokeMethod<String>('chatWithPhi', {
         'modelId': settings.selectedLocalModel,
         'message': text,
-        'systemPrompt': _sanitize(settings.aiSystemPrompt),
+        'systemPrompt': fullPrompt,
         'history': recent,
       });
 
       if (result == null || result.isEmpty) {
-        throw Exception('Phi returned empty response');
+        throw Exception('AI returned empty response');
       }
-      return result;
+      return (reply: result, model: 'phi_local', fallback: false, fallbackReason: null);
     } catch (e) {
       if (e is MissingPluginException) {
-        throw Exception('Phi not available. Download the model in Settings first.');
+        throw Exception('AI not available. Download the local model in Settings first.');
       }
       rethrow;
     }
+  }
+
+  /// Correct an AI reply directly in chat, train the model, and optionally create an auto-reply rule
+  Future<void> correctAiReply(String messageId, String newContent, {bool createRule = false}) async {
+    final idx = state.indexWhere((m) => m.id == messageId);
+    if (idx == -1) return;
+
+    final targetMsg = state[idx];
+    if (targetMsg.role != 'assistant') return;
+
+    final originalText = targetMsg.originalContent ?? targetMsg.content;
+
+    // Find the preceding user message to pair with this reply
+    String userMessageText = '';
+    for (int i = idx - 1; i >= 0; i--) {
+      if (state[i].role == 'user') {
+        userMessageText = state[i].content;
+        break;
+      }
+    }
+
+    final updatedMsg = ChatMessage(
+      id: targetMsg.id,
+      role: targetMsg.role,
+      content: newContent.trim(),
+      timestamp: targetMsg.timestamp,
+      model: targetMsg.model,
+      isTrained: true,
+      originalContent: originalText,
+    );
+
+    final box = HiveConfig.getChatBox();
+    await box.put(updatedMsg.id, updatedMsg);
+
+    final newState = List<ChatMessage>.from(state);
+    newState[idx] = updatedMsg;
+    state = newState;
+
+    if (userMessageText.isNotEmpty) {
+      await _ref
+          .read(appSettingsProvider.notifier)
+          .addTrainingExample(userMessageText, newContent.trim());
+
+      if (createRule) {
+        final ruleRepo = _ref.read(ruleRepositoryProvider);
+        final newRule = Rule(
+          id: const Uuid().v4(),
+          triggerText: userMessageText,
+          replyText: newContent.trim(),
+          exactMatch: false,
+          containsMatch: true,
+          caseSensitive: false,
+          isEnabled: true,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+          triggerTexts: [userMessageText],
+          replies: [newContent.trim()],
+        );
+        await ruleRepo.addRule(newRule);
+        await _ref.read(rulesProvider.notifier).refreshRules();
+      }
+    }
+
+    _syncChatbotContext();
   }
 
   Future<void> clearConversation() async {

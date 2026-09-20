@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../core/hive_config.dart';
 import '../models/app_settings.dart';
 import '../models/rule.dart';
+import '../utils/contact_identifier.dart';
 
 /// Repository for managing rules
 @injectable
@@ -97,16 +98,14 @@ class RuleRepository {
 
   /// Find matching rule for a message
   Rule? findMatchingRule(String message, {String? sender, AppSettings? settings}) {
-    // Blacklist check
     if (sender != null && settings != null) {
-      if (settings.contactBlacklist.any((c) => c.toLowerCase() == sender.toLowerCase())) {
+      if (!ContactIdentifier.isSenderAllowedForAutoReply(
+        sender: sender,
+        whitelistEnabled: settings.contactWhitelistEnabled,
+        whitelist: settings.contactWhitelist,
+        blacklist: settings.contactBlacklist,
+      )) {
         return null;
-      }
-      // Whitelist check
-      if (settings.contactWhitelistEnabled && settings.contactWhitelist.isNotEmpty) {
-        if (!settings.contactWhitelist.any((c) => c.toLowerCase() == sender.toLowerCase())) {
-          return null;
-        }
       }
     }
 

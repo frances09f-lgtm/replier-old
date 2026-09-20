@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'package:injectable/injectable.dart';
 import '../core/hive_config.dart';
 import '../core/constants.dart';
 import '../models/app_settings.dart';
+import '../utils/cloud_ai_model.dart';
+import '../utils/contact_identifier.dart';
 
 /// Repository for managing app settings
 @injectable
@@ -25,7 +28,22 @@ class SettingsRepository {
       box.put('settings', defaultSettings);
       return defaultSettings;
     }
-    return box.get('settings')!;
+    final settings = box.get('settings')!;
+    return _migrateCloudModelsIfNeeded(settings);
+  }
+
+  AppSettings _migrateCloudModelsIfNeeded(AppSettings settings) {
+    final groqModel = CloudAiModel.normalizeGroqModel(settings.groqModel);
+    final geminiModel = CloudAiModel.normalizeGeminiModel(settings.geminiModel);
+    if (groqModel == settings.groqModel && geminiModel == settings.geminiModel) {
+      return settings;
+    }
+    final migrated = settings.copyWith(
+      groqModel: groqModel,
+      geminiModel: geminiModel,
+    );
+    HiveConfig.getSettingsBox().put('settings', migrated);
+    return migrated;
   }
 
   /// Update app settings
@@ -145,6 +163,36 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
+  /// Update Cerebras API config
+  Future<void> updateCerebrasConfig(String apiKey, String model) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      cerebrasApiKey: apiKey,
+      cerebrasModel: model,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Groq API config
+  Future<void> updateGroqConfig(String apiKey, String model) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      groqApiKey: apiKey,
+      groqModel: model,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update Gemini API config
+  Future<void> updateGeminiConfig(String apiKey, String model) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      geminiApiKey: apiKey,
+      geminiModel: model,
+    );
+    await updateSettings(updatedSettings);
+  }
+
   /// Update selected local model ID
   Future<void> updateSelectedLocalModel(String modelId) async {
     final settings = getSettings();
@@ -152,12 +200,37 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
-  /// Update Cerebras API configuration
-  Future<void> updateCerebrasConfig(String apiKey, String model) async {
+  /// Update per-engine daily reply limits (0 = unlimited)
+  Future<void> updateAiReplyLimits({
+    int? cerebrasReplyLimit,
+    int? groqReplyLimit,
+    int? geminiReplyLimit,
+    int? localReplyLimit,
+  }) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(
-      cerebrasApiKey: apiKey,
-      cerebrasModel: model,
+      cerebrasReplyLimit: cerebrasReplyLimit,
+      groqReplyLimit: groqReplyLimit,
+      geminiReplyLimit: geminiReplyLimit,
+      localReplyLimit: localReplyLimit,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Toggle fallback to local model when cloud API keys fail
+  Future<void> toggleFallbackToLocalModel() async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      fallbackToLocalModel: !settings.fallbackToLocalModel,
+    );
+    await updateSettings(updatedSettings);
+  }
+
+  /// Update fallback to local model
+  Future<void> updateFallbackToLocalModel(bool enabled) async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(
+      fallbackToLocalModel: enabled,
     );
     await updateSettings(updatedSettings);
   }
@@ -247,15 +320,13 @@ class SettingsRepository {
   /// Check if a contact is blacklisted
   bool isContactBlacklisted(String contact) {
     final settings = getSettings();
-    return settings.contactBlacklist
-        .any((c) => c.toLowerCase() == contact.toLowerCase());
+    return ContactIdentifier.isBlacklisted(contact, settings.contactBlacklist);
   }
 
   /// Check if a contact is whitelisted
   bool isContactWhitelisted(String contact) {
     final settings = getSettings();
-    return settings.contactWhitelist
-        .any((c) => c.toLowerCase() == contact.toLowerCase());
+    return ContactIdentifier.isWhitelisted(contact, settings.contactWhitelist);
   }
 
   /// Update busy mode settings
@@ -286,6 +357,44 @@ class SettingsRepository {
     if (!settings.busyModeEnabled) return false;
     if (settings.busyUntilTimestamp <= 0) return true;
     return DateTime.now().millisecondsSinceEpoch < settings.busyUntilTimestamp;
+  }
+
+  /// Add a training example pair
+  Future<void> addTrainingExample(String userMessage, String correctedReply) async {
+    final settings = getSettings();
+    final list = List<String>.from(settings.trainingExamplesRaw);
+    final entry = {
+      'id': DateTime.now().millisecondsSinceEpoch.toString(),
+      'userMessage': userMessage,
+      'correctedReply': correctedReply,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+    list.add(jsonEncode(entry));
+    final updatedSettings = settings.copyWith(trainingExamplesRaw: list);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Remove a training example pair by id
+  Future<void> removeTrainingExample(String id) async {
+    final settings = getSettings();
+    final list = List<String>.from(settings.trainingExamplesRaw);
+    list.removeWhere((e) {
+      try {
+        final map = jsonDecode(e) as Map<String, dynamic>;
+        return map['id'] == id;
+      } catch (_) {
+        return false;
+      }
+    });
+    final updatedSettings = settings.copyWith(trainingExamplesRaw: list);
+    await updateSettings(updatedSettings);
+  }
+
+  /// Clear all training examples
+  Future<void> clearTrainingExamples() async {
+    final settings = getSettings();
+    final updatedSettings = settings.copyWith(trainingExamplesRaw: []);
+    await updateSettings(updatedSettings);
   }
 
   /// Check if app is enabled for a specific package

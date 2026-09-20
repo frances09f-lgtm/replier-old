@@ -20,12 +20,20 @@ class ChatMessage extends HiveObject {
   @HiveField(4)
   String? model;
 
+  @HiveField(5)
+  bool isTrained;
+
+  @HiveField(6)
+  String? originalContent;
+
   ChatMessage({
     String? id,
     required this.role,
     required this.content,
     DateTime? timestamp,
     this.model,
+    this.isTrained = false,
+    this.originalContent,
   })  : id = id ?? const Uuid().v4(),
         timestamp = timestamp ?? DateTime.now();
 }

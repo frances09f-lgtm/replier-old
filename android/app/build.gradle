@@ -54,6 +54,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -70,4 +74,6 @@ dependencies {
     implementation "com.google.mlkit:smart-reply:17.0.3"
     implementation "dev.ffmpegkit-maintained:llama-android:0.1.1"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
 }

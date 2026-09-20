@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
 import '../models/notification_data.dart';
 import '../providers/log_provider.dart';
+import '../providers/note_provider.dart';
 import '../providers/settings_provider.dart';
 import '../repositories/log_repository.dart';
 import '../repositories/rule_repository.dart';
+import 'note_extraction_service.dart';
 
 /// Listens to the notification MethodChannel for logging purposes only.
 ///
@@ -17,6 +19,7 @@ import '../repositories/rule_repository.dart';
 class AutoReplyService {
   final RuleRepository _ruleRepository;
   final LogRepository _logRepository;
+  final NoteExtractionService _noteExtractionService;
   final ProviderContainer? _providerContainer;
 
   static const MethodChannel _notificationChannel =
@@ -45,9 +48,11 @@ class AutoReplyService {
   AutoReplyService({
     required RuleRepository ruleRepository,
     required LogRepository logRepository,
+    NoteExtractionService? noteExtractionService,
     ProviderContainer? providerContainer,
   })  : _ruleRepository = ruleRepository,
         _logRepository = logRepository,
+        _noteExtractionService = noteExtractionService ?? NoteExtractionService(),
         _providerContainer = providerContainer {
     _instance = this;
   }
@@ -116,6 +121,16 @@ class AutoReplyService {
 
       // Track every notification received (only for actual external messages)
       await _logRepository.incrementNotificationsReceived();
+
+      // Automatically extract actionable notes, meetings, and reminders
+      final extractedNote = await _noteExtractionService.processMessage(
+        notification.sender,
+        notification.message,
+        appName: notification.appName,
+      );
+      if (extractedNote != null && _providerContainer != null) {
+        _providerContainer!.read(notesProvider.notifier).loadNotes();
+      }
 
       // For rule-based replies, create the log here
       final settings = _providerContainer?.read(appSettingsProvider);

@@ -133,6 +133,27 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
+  Future<void> updateCerebrasConfig(String apiKey, String model) async {
+    await _repository.updateCerebrasConfig(apiKey, model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateGroqConfig(String apiKey, String model) async {
+    await _repository.updateGroqConfig(apiKey, model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateGeminiConfig(String apiKey, String model) async {
+    await _repository.updateGeminiConfig(apiKey, model);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
   Future<void> updateSelectedLocalModel(String modelId) async {
     await _repository.updateSelectedLocalModel(modelId);
     final s = _repository.getSettings();
@@ -140,8 +161,32 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateCerebrasConfig(String apiKey, String model) async {
-    await _repository.updateCerebrasConfig(apiKey, model);
+  Future<void> updateAiReplyLimits({
+    int? cerebrasReplyLimit,
+    int? groqReplyLimit,
+    int? geminiReplyLimit,
+    int? localReplyLimit,
+  }) async {
+    await _repository.updateAiReplyLimits(
+      cerebrasReplyLimit: cerebrasReplyLimit,
+      groqReplyLimit: groqReplyLimit,
+      geminiReplyLimit: geminiReplyLimit,
+      localReplyLimit: localReplyLimit,
+    );
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> toggleFallbackToLocalModel() async {
+    await _repository.toggleFallbackToLocalModel();
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> updateFallbackToLocalModel(bool enabled) async {
+    await _repository.updateFallbackToLocalModel(enabled);
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);
@@ -224,6 +269,27 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
       endHour: endHour,
       endMinute: endMinute,
     );
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> addTrainingExample(String userMessage, String correctedReply) async {
+    await _repository.addTrainingExample(userMessage, correctedReply);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> removeTrainingExample(String id) async {
+    await _repository.removeTrainingExample(id);
+    final s = _repository.getSettings();
+    state = s;
+    await _syncService.syncSettings(s);
+  }
+
+  Future<void> clearTrainingExamples() async {
+    await _repository.clearTrainingExamples();
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);

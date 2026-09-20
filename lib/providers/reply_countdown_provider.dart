@@ -59,22 +59,29 @@ class ReplyCountdownNotifier extends StateNotifier<ReplyCountdownData> {
   }
 
   void _onReplyScheduled(Map<String, dynamic> data) {
-    final delayMs = data['delayMs'] as int? ?? 0;
+    final delayMs = (data['delayMs'] as num?)?.toInt() ?? 0;
     final sender = data['sender'] as String? ?? '';
     final replyText = data['replyText'] as String? ?? '';
+    final scheduledAtMs = (data['scheduledAt'] as num?)?.toInt();
+    final scheduledAt = scheduledAtMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(scheduledAtMs)
+        : DateTime.now();
 
     _countdownTimer?.cancel();
+
+    final elapsed = DateTime.now().millisecondsSinceEpoch - scheduledAt.millisecondsSinceEpoch;
+    final initialRemaining = (delayMs - elapsed).clamp(0, delayMs);
 
     state = ReplyCountdownData(
       isActive: true,
       sender: sender,
       replyText: replyText,
       totalMs: delayMs,
-      remainingMs: delayMs,
-      scheduledAt: DateTime.now(),
+      remainingMs: initialRemaining,
+      scheduledAt: scheduledAt,
     );
 
-    if (delayMs > 0) {
+    if (initialRemaining > 0) {
       _countdownTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
         _tick();
       });
@@ -87,14 +94,14 @@ class ReplyCountdownNotifier extends StateNotifier<ReplyCountdownData> {
   }
 
   void _tick() {
-    if (state.remainingMs <= 0) {
+    final elapsed = DateTime.now().millisecondsSinceEpoch - state.scheduledAt.millisecondsSinceEpoch;
+    final remaining = (state.totalMs - elapsed).clamp(0, state.totalMs);
+    if (remaining <= 0) {
       _countdownTimer?.cancel();
+      state = state.copyWith(remainingMs: 0);
       return;
     }
-    final newRemaining = state.remainingMs - 100;
-    state = state.copyWith(
-      remainingMs: newRemaining > 0 ? newRemaining : 0,
-    );
+    state = state.copyWith(remainingMs: remaining);
   }
 
   @override

@@ -34,21 +34,20 @@ class PipelineStatusData {
 }
 
 // Internal event types
-enum _EventType { gotMessage, analysing, replyReady, replyScheduled, replyCompleted }
+enum _EventType { gotMessage, analysing, replyReady, replyCompleted }
 
 class _PipelineEvent {
   final _EventType type;
   final String sender;
-  final int delayMs; // only for replyScheduled
-  const _PipelineEvent(this.type, {this.sender = '', this.delayMs = 0});
+  const _PipelineEvent(this.type, {this.sender = ''});
 }
 
 class PipelineStatusNotifier extends StateNotifier<PipelineStatusData> {
   // Minimum time each stage stays visible before the next one shows
   static const _minDisplayMs = {
-    PipelineStage.gotMessage: 700,
-    PipelineStage.analysing:  800,
-    PipelineStage.replyReady: 700,
+    PipelineStage.gotMessage: 500,
+    PipelineStage.analysing:  600,
+    PipelineStage.replyReady: 500,
     PipelineStage.sending:    0,    // sending runs its real countdown
   };
 
@@ -84,7 +83,17 @@ class PipelineStatusNotifier extends StateNotifier<PipelineStatusData> {
   void _onReplyScheduled(Map<String, dynamic> data) {
     final delayMs = (data['delayMs'] as num?)?.toInt() ?? 0;
     final sender  = data['sender'] as String? ?? '';
-    _enqueue(_PipelineEvent(_EventType.replyScheduled, sender: sender, delayMs: delayMs));
+    final scheduledAtMs = (data['scheduledAt'] as num?)?.toInt();
+    final scheduledAt = scheduledAtMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(scheduledAtMs)
+        : DateTime.now();
+
+    // Reply is already scheduled on native — drop any lingering analysis queue
+    _queue.clear();
+    _cancelStageTimer();
+
+    // Transition smoothly into sending countdown without artificial delays
+    _startSending(sender, delayMs, scheduledAt);
   }
 
   void _onReplyCompleted() {
@@ -124,10 +133,6 @@ class PipelineStatusNotifier extends StateNotifier<PipelineStatusData> {
         _showStage(PipelineStage.replyReady, event.sender);
         break;
 
-      case _EventType.replyScheduled:
-        _startSending(event.sender, event.delayMs);
-        break;
-
       case _EventType.replyCompleted:
         _cancelTimers();
         state = const PipelineStatusData();
@@ -141,19 +146,21 @@ class PipelineStatusNotifier extends StateNotifier<PipelineStatusData> {
     _cancelStageTimer();
     state = PipelineStatusData(stage: stage, sender: sender);
 
-    final minMs = _minDisplayMs[stage] ?? 600;
+    final minMs = _minDisplayMs[stage] ?? 400;
     _stageTimer = Timer(Duration(milliseconds: minMs), () {
       _stageTimer = null;
       _processNext();
     });
   }
 
-  /// Start the sending stage with a live countdown.
-  void _startSending(String sender, int delayMs) {
+  /// Start the sending stage with a live countdown synchronized to wall-clock time.
+  void _startSending(String sender, int delayMs, DateTime scheduledAt) {
     _cancelStageTimer();
     _cancelCountdownTimer();
 
-    final countdownSecs = delayMs <= 0 ? 0 : (delayMs / 1000).ceil();
+    final targetTime = scheduledAt.add(Duration(milliseconds: delayMs));
+    final initialRemainingMs = targetTime.difference(DateTime.now()).inMilliseconds;
+    final countdownSecs = initialRemainingMs <= 0 ? 0 : (initialRemainingMs / 1000).ceil();
 
     state = PipelineStatusData(
       stage: PipelineStage.sending,
@@ -162,9 +169,10 @@ class PipelineStatusNotifier extends StateNotifier<PipelineStatusData> {
     );
 
     if (countdownSecs > 0) {
-      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        final remaining = state.countdownSeconds - 1;
-        if (remaining <= 0) {
+      _countdownTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+        final remMs = targetTime.difference(DateTime.now()).inMilliseconds;
+        final remSecs = remMs <= 0 ? 0 : (remMs / 1000).ceil();
+        if (remSecs <= 0) {
           _cancelCountdownTimer();
           state = state.copyWith(countdownSeconds: 0);
           // Staleness guard: auto-clear if terminal event never arrives
@@ -174,8 +182,8 @@ class PipelineStatusNotifier extends StateNotifier<PipelineStatusData> {
               _processing = false;
             }
           });
-        } else {
-          state = state.copyWith(countdownSeconds: remaining);
+        } else if (remSecs != state.countdownSeconds) {
+          state = state.copyWith(countdownSeconds: remSecs);
         }
       });
     }

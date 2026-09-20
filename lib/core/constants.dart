@@ -9,6 +9,7 @@ class AppConstants {
   static const String settingsBox = 'settings';
   static const String logsBox = 'logs';
   static const String statsBox = 'stats';
+  static const String notesBox = 'notes';
 
   // Method channel names
   static const String nativeChannel = 'com.example.auto_reply_assistant/native';
