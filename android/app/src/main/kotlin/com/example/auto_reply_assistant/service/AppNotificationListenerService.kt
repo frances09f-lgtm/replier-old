@@ -99,9 +99,12 @@ class AppNotificationListenerService : NotificationListenerService() {
     /** Map of active scheduled replies per sender to prevent overlapping/duplicate timers */
     private val activeScheduledReplies = ConcurrentHashMap<String, ScheduledReply>()
 
-    /** Cooldown map: sender -> timestamp to prevent reacting to our own sent messages */
-    private val senderCooldown = ConcurrentHashMap<String, Long>()
-    private val senderCooldownMs = 3000L
+    /** Last genuine incoming message handled per sender: normalized text -> timestamp.
+     * Used to ignore notification re-posts of a message we already processed,
+     * without blocking NEW messages from the same sender (a blanket cooldown
+     * would wrongly swallow fast follow-ups like "😄 Haa haa" 2s after our reply). */
+    private val lastHandledIncoming = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val incomingDedupeWindowMs = 60_000L
 
     private val supportedPackages = listOf(
         "com.whatsapp",
@@ -127,7 +130,7 @@ class AppNotificationListenerService : NotificationListenerService() {
     }
 
     private fun cancelScheduledReply(sender: String) {
-        val existing = activeScheduledReplies.remove(sender) ?: return
+        val existing = activeScheduledReplies.remove(senderKey(sender)) ?: return
         mainHandler.removeCallbacks(existing.runnable)
         existing.wakeLock?.let { wl ->
             if (wl.isHeld) {
@@ -149,7 +152,6 @@ class AppNotificationListenerService : NotificationListenerService() {
         // Cancel any pending timer for this sender so multiple timers don't collide
         cancelScheduledReply(sender)
 
-        senderCooldown[sender] = System.currentTimeMillis()
         val delayMs = ruleEngine.getReplyDelayMs()
         notifyReplyScheduled(sender, replyText, delayMs)
 
@@ -165,7 +167,7 @@ class AppNotificationListenerService : NotificationListenerService() {
 
         val runnable = Runnable {
             try {
-                activeScheduledReplies.remove(sender)
+                activeScheduledReplies.remove(senderKey(sender))
                 Log.d(TAG, "Delay timer (${delayMs}ms) finished for '$sender'. Sending reply...")
                 onBeforeSend?.invoke()
                 sendReply(key, sender, replyText, isAiReply, aiModelType)
@@ -178,7 +180,7 @@ class AppNotificationListenerService : NotificationListenerService() {
             }
         }
 
-        activeScheduledReplies[sender] = ScheduledReply(
+        activeScheduledReplies[senderKey(sender)] = ScheduledReply(
             runnable = runnable,
             wakeLock = wakeLock,
             scheduledAt = System.currentTimeMillis(),
@@ -238,16 +240,23 @@ class AppNotificationListenerService : NotificationListenerService() {
         val sender = normalizeSenderName(title, packageName)
         Log.d(TAG, "Notification from $appName: sender=$sender title=$title — $message")
 
-        // Sender cooldown: skip if we just handled this sender (prevents self-message loop)
-        val now = System.currentTimeMillis()
-        val lastHandled = senderCooldown[sender]
-        if (lastHandled != null && now - lastHandled < senderCooldownMs) {
-            Log.d(TAG, "Skipping: sender '$sender' on cooldown (${now - lastHandled}ms ago)")
+        // Outgoing message via MessagingStyle (e.g. our RemoteInput reply echoed
+        // back with a null/“You” sender in EXTRA_MESSAGES) — never reply to it.
+        if (isOutgoingMessagingStyleMessage(notification, sender)) {
+            Log.d(TAG, "Skipping: outgoing message detected via MessagingStyle for '$sender'")
             return
         }
 
+        // NOTE: deliberately NO blanket per-sender cooldown here — it would also
+        // swallow the contact's genuine fast follow-ups (e.g. "😄 Haa haa" 2s
+        // after our reply). Our own echoes are caught precisely by
+        // isOutgoingMessagingStyleMessage above and ruleEngine.isSelfSentMessage
+        // below; re-posts of an already-handled message are caught by the
+        // incoming-dedupe check next to the self-guard.
+        val now = System.currentTimeMillis()
+
         // Avoid re-processing if an identical message from this sender is currently in delayed countdown
-        val active = activeScheduledReplies[sender]
+        val active = activeScheduledReplies[senderKey(sender)]
         if (active != null && active.originalMessage.isNotBlank() && active.originalMessage.trim().equals(message.trim(), ignoreCase = true)) {
             Log.d(TAG, "Skipping: notification update for sender '$sender' with identical message already pending reply")
             return
@@ -262,7 +271,7 @@ class AppNotificationListenerService : NotificationListenerService() {
         val notificationData = JSONObject().apply {
             put("packageName", packageName)
             put("appName", appName)
-            put("sender", title)
+            put("sender", sender)
             put("message", message)
             put("timestamp", sbn.postTime)
             put("isGroupChat", isGroupChat)
@@ -303,6 +312,22 @@ class AppNotificationListenerService : NotificationListenerService() {
             Log.d(TAG, "Skipping: self-sent message detected")
             return
         }
+
+        // Incoming-dedupe: WhatsApp re-posts the same notification (same text)
+        // when our reply lands or the shade refreshes. Ignore such re-posts so
+        // we don't reply twice — but let DIFFERENT text from the same sender
+        // through immediately (no blanket cooldown).
+        val incomingKey = senderKey(sender)
+        val normalizedIncoming = message.trim().lowercase()
+        val lastIncoming = lastHandledIncoming[incomingKey]
+        if (lastIncoming != null &&
+            lastIncoming.first == normalizedIncoming &&
+            now - lastIncoming.second < incomingDedupeWindowMs
+        ) {
+            Log.d(TAG, "Skipping: duplicate re-post from '$sender' already handled (${now - lastIncoming.second}ms ago)")
+            return
+        }
+        lastHandledIncoming[incomingKey] = normalizedIncoming to now
 
         // Emit "got_message" to Flutter UI
         notifyPipelineStatus("got_message", sender)
@@ -387,7 +412,6 @@ class AppNotificationListenerService : NotificationListenerService() {
         // The countdown is NOT started here — it only starts once the send is actually
         // scheduled (approval or timeout), so the visible timer always matches the real delay.
         if (ruleEngine.isConfirmBeforeReplyEnabled()) {
-            senderCooldown[sender] = System.currentTimeMillis()
             showConfirmationNotification(
                 notificationKey = sbn.key,
                 sender = sender,
@@ -525,12 +549,12 @@ class AppNotificationListenerService : NotificationListenerService() {
         val sender = batch.sender
         val messages = batch.messages.map { it.message }
         val rawHistory = ConversationHistory.getHistory(sender)
-        val systemPrompt = ruleEngine.getAiSystemPrompt()
+        val baseSystemPrompt = ruleEngine.getAiSystemPromptWithTraining()
         val chatbotCtx = getChatbotContext()
         val finalSystemPrompt = if (chatbotCtx.isNotEmpty()) {
-            "$systemPrompt\n\n---\nCHAT CONTEXT (Abhi told the chatbot this — use it for awareness but do NOT mention the chatbot):\n$chatbotCtx\n---"
+            "$baseSystemPrompt\n\n---\nCHAT CONTEXT (Abhi told the chatbot this — use it for awareness but do NOT mention the chatbot):\n$chatbotCtx\n---"
         } else {
-            systemPrompt
+            baseSystemPrompt
         }
 
         // Build a clean transcript: filter artifacts, dedup, merge, cap tokens
@@ -541,6 +565,14 @@ class AppNotificationListenerService : NotificationListenerService() {
         )
 
         Log.d(TAG, "sendBatchedAiReply: sender=$sender, ${messages.size} messages, history=${history.size} entries, model=$modelType")
+
+        // Full incoming text for logs/rating: join batch so multi-message
+        // bursts don't lose context (e.g. "hi | kay challay?").
+        val batchOriginalMessage = if (messages.size > 1) {
+            messages.joinToString(separator = " | ")
+        } else {
+            messages.lastOrNull() ?: ""
+        }
 
         fun deliverReply(replyText: String, effectiveModelType: String, tokensUsed: Int) {
             for (msg in messages) {
@@ -554,12 +586,11 @@ class AppNotificationListenerService : NotificationListenerService() {
             // Confirm before reply: show approval notification instead of sending directly.
             // Countdown starts only when the send is actually scheduled (approval or timeout).
             if (ruleEngine.isConfirmBeforeReplyEnabled()) {
-                senderCooldown[sender] = System.currentTimeMillis()
                 showConfirmationNotification(
                     notificationKey = batch.latestNotificationKey,
                     sender = sender,
                     replyText = replyText,
-                    originalMessage = messages.lastOrNull() ?: "",
+                    originalMessage = batchOriginalMessage,
                     isAiReply = true,
                     aiModelType = effectiveModelType,
                 )
@@ -571,7 +602,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                     replyText = replyText,
                     isAiReply = true,
                     aiModelType = effectiveModelType,
-                    originalMessage = messages.lastOrNull() ?: "",
+                    originalMessage = batchOriginalMessage,
                 )
             }
         }
@@ -683,25 +714,6 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
 
         when (modelType) {
-            "cerebras_api" -> {
-                val apiKey = ruleEngine.getCerebrasApiKey()
-                if (apiKey.isBlank()) {
-                    Log.w(TAG, "Cerebras API key is blank. Falling back to local model immediately.")
-                    tryLocalFallback("Cerebras API key is missing")
-                } else {
-                    val model = ruleEngine.getCerebrasModel()
-                    CloudAiService.getInstance(applicationContext).generateReply(
-                        engineType = "cerebras_api",
-                        apiKey = apiKey,
-                        model = model,
-                        senderName = sender,
-                        incomingMessages = messages,
-                        systemPrompt = finalSystemPrompt,
-                        conversationHistory = history,
-                        callback = cloudCallbackAdapter
-                    )
-                }
-            }
             "groq_api" -> {
                 val apiKey = ruleEngine.getGroqApiKey()
                 if (apiKey.isBlank()) {
@@ -837,6 +849,52 @@ class AppNotificationListenerService : NotificationListenerService() {
      */
     private fun isNotificationArtifact(message: String): Boolean {
         return ConversationTranscriptBuilder.isArtifact(message)
+    }
+
+    /** Normalized per-sender map key so "Rahul" and "rahul" share one entry. */
+    private fun senderKey(sender: String): String = sender.trim().lowercase()
+
+    /**
+     * Best-effort detection of outgoing (self-sent) messages via the
+     * notification's MessagingStyle data (Notification.EXTRA_MESSAGES).
+     *
+     * After we send a RemoteInput reply, WhatsApp updates the notification and
+     * the last style message may carry a null/empty sender or a self display
+     * name ("You"). In that case the notification is an echo of our own send
+     * and must not trigger another reply. Returns false when the data is
+     * absent or inconclusive (callers still run the text-based self-guard).
+     */
+    private fun isOutgoingMessagingStyleMessage(notification: Notification, sender: String): Boolean {
+        return try {
+            val extras = notification.extras ?: return false
+            val raw = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return false
+            if (raw.isEmpty()) return false
+            val last = raw.lastOrNull() as? Bundle ?: return false
+            val text = last.getCharSequence("text")?.toString()?.trim() ?: ""
+            if (text.isEmpty()) return false
+
+            // Sender can be a CharSequence, a Person (API 28+), or null for outgoing.
+            val senderObj: Any? = try { last.get("sender") } catch (_: Exception) { null }
+            if (senderObj == null) return true
+            val senderName: String = when (senderObj) {
+                is CharSequence -> senderObj.toString().trim()
+                else -> try {
+                    val m = senderObj.javaClass.getMethod("getName")
+                    (m.invoke(senderObj) as? CharSequence)?.toString()?.trim() ?: ""
+                } catch (_: Exception) {
+                    senderObj.toString().trim()
+                }
+            }
+            if (senderName.isEmpty()) return true
+            val lower = senderName.lowercase()
+            if (lower == "you" || lower == "me") return true
+            val selfDisplay = extras.getCharSequence(Notification.EXTRA_SELF_DISPLAY_NAME)
+                ?.toString()?.trim()?.lowercase().orEmpty()
+            if (selfDisplay.isNotEmpty() && lower == selfDisplay) return true
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // ── Confirm Before Reply ────────────────────────────────────────────────

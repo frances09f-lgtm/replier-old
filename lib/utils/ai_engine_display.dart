@@ -5,7 +5,6 @@ class AiEngineDisplay {
   AiEngineDisplay._();
 
   static const List<String> allEngineIds = [
-    'cerebras_api',
     'groq_api',
     'gemini_api',
     'phi_local',
@@ -13,11 +12,6 @@ class AiEngineDisplay {
 
   static ({String label, IconData icon, Color color}) forEngine(String engineId) {
     return switch (engineId) {
-      'cerebras_api' => (
-          label: 'Cerebras Cloud',
-          icon: Icons.bolt,
-          color: Colors.amber.shade800,
-        ),
       'groq_api' => (
           label: 'Groq Cloud',
           icon: Icons.speed,

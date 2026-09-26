@@ -30,6 +30,22 @@ class ReplyLog extends HiveObject {
   @HiveField(7)
   String aiModel;
 
+  /// User feedback: 1 = good (thumbs up), -1 = bad (thumbs down), 0 = unrated.
+  @HiveField(8)
+  int rating;
+
+  /// Optional note describing what was wrong (e.g. "too formal").
+  @HiveField(9)
+  String feedbackNote;
+
+  /// Corrected reply the user taught ("should be: ...").
+  @HiveField(10)
+  String correctedReply;
+
+  /// Whether this log has already contributed a training example.
+  @HiveField(11)
+  bool trained;
+
   ReplyLog({
     required this.id,
     required this.sender,
@@ -39,6 +55,10 @@ class ReplyLog extends HiveObject {
     required this.dateTime,
     required this.ruleId,
     this.aiModel = '',
+    this.rating = 0,
+    this.feedbackNote = '',
+    this.correctedReply = '',
+    this.trained = false,
   });
 
   /// Convert to JSON
@@ -52,6 +72,10 @@ class ReplyLog extends HiveObject {
       'dateTime': dateTime.toIso8601String(),
       'ruleId': ruleId,
       'aiModel': aiModel,
+      'rating': rating,
+      'feedbackNote': feedbackNote,
+      'correctedReply': correctedReply,
+      'trained': trained,
     };
   }
 
@@ -66,6 +90,10 @@ class ReplyLog extends HiveObject {
       dateTime: DateTime.parse(json['dateTime']),
       ruleId: json['ruleId'],
       aiModel: json['aiModel'] ?? '',
+      rating: (json['rating'] as num?)?.toInt() ?? 0,
+      feedbackNote: json['feedbackNote'] ?? '',
+      correctedReply: json['correctedReply'] ?? '',
+      trained: json['trained'] ?? false,
     );
   }
 
@@ -79,6 +107,10 @@ class ReplyLog extends HiveObject {
     DateTime? dateTime,
     String? ruleId,
     String? aiModel,
+    int? rating,
+    String? feedbackNote,
+    String? correctedReply,
+    bool? trained,
   }) {
     return ReplyLog(
       id: id ?? this.id,
@@ -89,6 +121,10 @@ class ReplyLog extends HiveObject {
       dateTime: dateTime ?? this.dateTime,
       ruleId: ruleId ?? this.ruleId,
       aiModel: aiModel ?? this.aiModel,
+      rating: rating ?? this.rating,
+      feedbackNote: feedbackNote ?? this.feedbackNote,
+      correctedReply: correctedReply ?? this.correctedReply,
+      trained: trained ?? this.trained,
     );
   }
 }

@@ -238,29 +238,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
 
-            // Engine Option 1: Cerebras
-            _buildEngineOptionCard(
-              context: context,
-              ref: ref,
-              settings: settings,
-              engineType: 'cerebras_api',
-              title: 'Cerebras Cloud API (⚡ Ultra-Fast)',
-              subtitle: '2,100+ tokens/sec, ~1,000 free replies/day (<0.2s latency)',
-              badge: 'Recommended',
-              badgeColor: Colors.amber[800]!,
-              apiKey: settings.cerebrasApiKey,
-              model: settings.cerebrasModel,
-              defaultModel: 'llama-3.3-70b',
-              availableModels: const ['llama-3.3-70b', 'llama3.1-8b'],
-              keyUrl: 'https://cloud.cerebras.ai',
-              onSave: (key, model) {
-                ref.read(appSettingsProvider.notifier).updateCerebrasConfig(key, model);
-              },
-            ),
-
-            const SizedBox(height: 8),
-
-            // Engine Option 2: Groq
+            // Engine Option 1: Groq
             _buildEngineOptionCard(
               context: context,
               ref: ref,
@@ -286,7 +264,7 @@ class SettingsScreen extends ConsumerWidget {
 
             const SizedBox(height: 8),
 
-            // Engine Option 3: Gemini Flash
+            // Engine Option 2: Gemini Flash
             _buildEngineOptionCard(
               context: context,
               ref: ref,
@@ -308,7 +286,7 @@ class SettingsScreen extends ConsumerWidget {
 
             const SizedBox(height: 8),
 
-            // Engine Option 4: On-Device Llama 3.2
+            // Engine Option 3: On-Device Llama 3.2
             Card(
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -371,19 +349,6 @@ class SettingsScreen extends ConsumerWidget {
                             selectedModelId: settings.selectedLocalModel,
                           ),
                           const SizedBox(height: 8),
-                          _ModelRadioTile(
-                            value: 'llama_3_2_3b',
-                            groupValue: settings.selectedLocalModel,
-                            title: settings.aiModelType == 'phi_local'
-                                ? 'Llama 3.2 3B Instruct'
-                                : 'Llama 3.2 3B Instruct (Fallback)',
-                            subtitle: '~2.0GB, highest quality reasoning (requires 6GB+ RAM)',
-                            onTap: () {
-                              ref.read(appSettingsProvider.notifier).updateSelectedLocalModel('llama_3_2_3b');
-                            },
-                            modelId: 'llama_3_2_3b',
-                            selectedModelId: settings.selectedLocalModel,
-                          ),
                         ],
                       ),
                     ),
@@ -548,7 +513,6 @@ class SettingsScreen extends ConsumerWidget {
 
   String _buildLimitSummary(AppSettings settings) {
     final parts = <String>[];
-    if (settings.cerebrasReplyLimit > 0) parts.add('Cerebras: ${settings.cerebrasReplyLimit}/day');
     if (settings.groqReplyLimit > 0) parts.add('Groq: ${settings.groqReplyLimit}/day');
     if (settings.geminiReplyLimit > 0) parts.add('Gemini: ${settings.geminiReplyLimit}/day');
     if (settings.localReplyLimit > 0) parts.add('Local: ${settings.localReplyLimit}/day');
@@ -559,8 +523,6 @@ class SettingsScreen extends ConsumerWidget {
     switch (modelId) {
       case 'qwen_2_5_1_5b':
         return 'Qwen 2.5 1.5B';
-      case 'llama_3_2_3b':
-        return 'Llama 3.2 3B';
       case 'llama_3_2_1b':
       default:
         return 'Llama 3.2 1B';
@@ -568,9 +530,6 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _showDailyLimitsDialog(BuildContext context, WidgetRef ref, AppSettings settings) {
-    final cerebrasCtrl = TextEditingController(
-      text: settings.cerebrasReplyLimit > 0 ? settings.cerebrasReplyLimit.toString() : '',
-    );
     final groqCtrl = TextEditingController(
       text: settings.groqReplyLimit > 0 ? settings.groqReplyLimit.toString() : '',
     );
@@ -595,8 +554,6 @@ class SettingsScreen extends ConsumerWidget {
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 16),
-              _LimitField(label: '⚡ Cerebras Cloud', controller: cerebrasCtrl, hint: 'Free tier: ~1,000/day'),
-              const SizedBox(height: 12),
               _LimitField(label: '🔶 Groq Cloud', controller: groqCtrl, hint: 'Free tier: ~1,000/day'),
               const SizedBox(height: 12),
               _LimitField(label: '🔵 Google Gemini', controller: geminiCtrl, hint: 'Free tier: 250–500/day'),
@@ -616,7 +573,6 @@ class SettingsScreen extends ConsumerWidget {
                 return int.tryParse(c.text.trim()) ?? 0;
               }
               ref.read(appSettingsProvider.notifier).updateAiReplyLimits(
-                cerebrasReplyLimit: parseLimit(cerebrasCtrl),
                 groqReplyLimit: parseLimit(groqCtrl),
                 geminiReplyLimit: parseLimit(geminiCtrl),
                 localReplyLimit: parseLimit(localCtrl),

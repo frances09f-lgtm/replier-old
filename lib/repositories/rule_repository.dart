@@ -73,11 +73,11 @@ class RuleRepository {
     return rules.where((rule) {
       final matchesTriggers = rule.effectiveTriggers
           .any((t) => t.toLowerCase().contains(lowerQuery));
-      final matchesSenders = rule.senderNames
-          .any((s) => s.toLowerCase().contains(lowerQuery));
-      return matchesTriggers ||
-          rule.replyText.toLowerCase().contains(lowerQuery) ||
-          matchesSenders;
+      final matchesSenders =
+          rule.senderNames.any((s) => s.toLowerCase().contains(lowerQuery));
+      final matchesReplies = rule.effectiveReplies
+          .any((r) => r.toLowerCase().contains(lowerQuery));
+      return matchesTriggers || matchesReplies || matchesSenders;
     }).toList();
   }
 
@@ -90,6 +90,49 @@ class RuleRepository {
     }
   }
 
+  /// One-time cleanup (v1.3+): remove old generic default rules that hijack
+  /// AI (ok/thanks/acha/ha ka/kon/free/online/...). Only touches isDefault
+  /// rules whose triggers are in the retired blocklist. Returns count removed.
+  Future<int> deleteRetiredHijackDefaults() async {
+    const retired = {
+      'ha ka',
+      'ho ka',
+      'khara ka',
+      'sure ka',
+      'acha',
+      'ok',
+      'okay',
+      'k',
+      'kon',
+      'kon ahe',
+      'kon hota',
+      'thanks',
+      'thank you',
+      'thx',
+      'free ahes',
+      'online ahes',
+      'reply ka nahi dila',
+      'aalas ka',
+      'kay zala',
+      'kuthe hotas',
+      'miss kelas',
+    };
+    final box = HiveConfig.getRulesBox();
+    var removed = 0;
+    for (final rule in box.values.where((r) => r.isDefault).toList()) {
+      final triggers =
+          rule.effectiveTriggers.map((t) => t.trim().toLowerCase()).toSet();
+      // Delete if ALL triggers are retired generics (don't touch customized
+      // rules that mix a retired trigger with a real one).
+      if (triggers.isNotEmpty &&
+          triggers.every((t) => retired.contains(t))) {
+        await box.delete(rule.id);
+        removed++;
+      }
+    }
+    return removed;
+  }
+
   /// Check if default rules have been loaded already
   bool hasDefaultRules() {
     final box = HiveConfig.getRulesBox();
@@ -97,7 +140,8 @@ class RuleRepository {
   }
 
   /// Find matching rule for a message
-  Rule? findMatchingRule(String message, {String? sender, AppSettings? settings}) {
+  Rule? findMatchingRule(String message,
+      {String? sender, AppSettings? settings}) {
     if (sender != null && settings != null) {
       if (!ContactIdentifier.isSenderAllowedForAutoReply(
         sender: sender,
@@ -145,6 +189,4 @@ class RuleRepository {
       updatedAt: DateTime.now(),
     );
   }
-
-
 }

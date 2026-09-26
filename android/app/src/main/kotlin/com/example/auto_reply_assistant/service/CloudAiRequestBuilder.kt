@@ -12,21 +12,27 @@ object CloudAiRequestBuilder {
         val effectiveSender = if (senderName.isBlank()) "the user" else senderName
         val sb = StringBuilder()
         sb.append(
-            "You are an AI assistant auto-replying to incoming messages from $effectiveSender " +
-                "on behalf of the app user.\n\n"
+            "You are Abhi replying on WhatsApp to $effectiveSender. " +
+                "Sound like a real person, NOT an assistant.\n\n"
         )
+
+        // Defaults FIRST so user corrections below override them (recency wins).
+        sb.append("Abhi's default style (use ONLY if nothing below matches):\n")
+        sb.append("- Short mixed Hinglish/Marathi+English, casual. 1-10 words typical, max 15 words.\n")
+        sb.append("- Match the incoming language (English, Marathi, or mixed Hinglish).\n")
+        sb.append("- No full polite sentences, no \"Sure! I'd be happy\", no explanations.\n")
+        sb.append("- No emoji unless the incoming message has one.\n\n")
 
         val trimmedUserPrompt = userSystemPrompt.trim()
         if (trimmedUserPrompt.isNotBlank()) {
-            sb.append("User Guidelines & Persona:\n")
+            sb.append("How Abhi ACTUALLY replies — FOLLOW THIS STRICTLY, it overrides the defaults above:\n")
             sb.append(trimmedUserPrompt)
             sb.append("\n\n")
         }
 
         sb.append("Instructions:\n")
-        sb.append("- Reply directly to $effectiveSender in a natural, friendly, and helpful tone.\n")
-        sb.append("- Reply in the same language as the incoming message (e.g. English, Marathi, or mixed).\n")
-        sb.append("- Keep replies brief, conversational, and under 30 words.\n")
+        sb.append("- Reply directly to $effectiveSender. Output ONLY the message reply text.\n")
+        sb.append("- If a LEARNED RESPONSE PATTERNS example matches the incoming message topic, copy its style/wording closely.\n")
         sb.append("- Do NOT repeat or echo $effectiveSender's message.\n")
         sb.append("- Do NOT include role prefixes like 'Assistant:', 'AI:', or '$effectiveSender:'.\n")
         sb.append(
@@ -43,8 +49,8 @@ object CloudAiRequestBuilder {
         incomingMessage: String,
         senderName: String,
         history: List<ConversationHistory.ChatMessage> = emptyList(),
-        maxTokens: Int = 256,
-        temperature: Double = 0.7,
+        maxTokens: Int = 80,
+        temperature: Double = 0.85,
         provider: String = "",
     ): JSONObject {
         val messagesArray = JSONArray()

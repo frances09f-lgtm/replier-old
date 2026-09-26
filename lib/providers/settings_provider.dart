@@ -133,13 +133,6 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> updateCerebrasConfig(String apiKey, String model) async {
-    await _repository.updateCerebrasConfig(apiKey, model);
-    final s = _repository.getSettings();
-    state = s;
-    await _syncService.syncSettings(s);
-  }
-
   Future<void> updateGroqConfig(String apiKey, String model) async {
     await _repository.updateGroqConfig(apiKey, model);
     final s = _repository.getSettings();
@@ -162,13 +155,11 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
   }
 
   Future<void> updateAiReplyLimits({
-    int? cerebrasReplyLimit,
     int? groqReplyLimit,
     int? geminiReplyLimit,
     int? localReplyLimit,
   }) async {
     await _repository.updateAiReplyLimits(
-      cerebrasReplyLimit: cerebrasReplyLimit,
       groqReplyLimit: groqReplyLimit,
       geminiReplyLimit: geminiReplyLimit,
       localReplyLimit: localReplyLimit,
@@ -274,8 +265,10 @@ class AppSettingsNotifier extends StateNotifier<AppSettings> {
     await _syncService.syncSettings(s);
   }
 
-  Future<void> addTrainingExample(String userMessage, String correctedReply) async {
-    await _repository.addTrainingExample(userMessage, correctedReply);
+  Future<void> addTrainingExample(String userMessage, String correctedReply,
+      {String note = ''}) async {
+    await _repository.addTrainingExample(userMessage, correctedReply,
+        note: note);
     final s = _repository.getSettings();
     state = s;
     await _syncService.syncSettings(s);

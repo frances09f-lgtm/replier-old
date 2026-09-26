@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:hive/hive.dart';
 
 import '../utils/cloud_ai_model.dart';
@@ -89,12 +91,6 @@ class AppSettings extends HiveObject {
   @HiveField(33)
   String selectedLocalModel;
 
-  @HiveField(34)
-  String cerebrasApiKey;
-
-  @HiveField(35)
-  String cerebrasModel;
-
   @HiveField(37)
   String groqApiKey;
 
@@ -111,9 +107,6 @@ class AppSettings extends HiveObject {
   List<String> trainingExamplesRaw;
 
   /// Daily reply limits per AI engine (0 = unlimited)
-  @HiveField(41)
-  int cerebrasReplyLimit;
-
   @HiveField(42)
   int groqReplyLimit;
 
@@ -136,8 +129,8 @@ class AppSettings extends HiveObject {
     this.ignoreGroupChats = true,
     this.darkMode = false,
     this.aiReplyEnabled = false,
-    this.aiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
-    this.aiModelType = 'cerebras_api',
+    this.aiSystemPrompt = 'You are Abhi. Reply short casual Hinglish, 1-10 words. Match incoming language. No polite assistant sentences.',
+    this.aiModelType = 'phi_local',
     this.scheduleEnabled = false,
     this.scheduleStartHour = 8,
     this.scheduleStartMinute = 0,
@@ -153,14 +146,11 @@ class AppSettings extends HiveObject {
     this.gemmaLocalServerUrl = '',
     this.gemmaLocalModel = 'llama_3_2_1b',
     this.selectedLocalModel = 'llama_3_2_1b',
-    this.cerebrasApiKey = '',
-    this.cerebrasModel = 'llama-3.3-70b',
     this.groqApiKey = '',
     this.groqModel = 'openai/gpt-oss-20b',
     this.geminiApiKey = '',
     this.geminiModel = 'gemini-3.6-flash',
     this.trainingExamplesRaw = const [],
-    this.cerebrasReplyLimit = 0,
     this.groqReplyLimit = 0,
     this.geminiReplyLimit = 0,
     this.localReplyLimit = 0,
@@ -168,27 +158,74 @@ class AppSettings extends HiveObject {
     required this.lastUpdated,
   });
 
-  /// Get parsed training examples as List of maps
+  /// Get parsed training examples as List of maps.
+  /// Supports both JSON format (current, from SettingsRepository) and
+  /// legacy ':::'-separated format for backward compatibility.
   List<Map<String, String>> get trainingExamples {
-    return trainingExamplesRaw.map((e) {
+    final result = <Map<String, String>>[];
+    for (final e in trainingExamplesRaw) {
+      // Try JSON first (current format: {"id":...,"userMessage":...,"correctedReply":...})
+      try {
+        final trimmed = e.trim();
+        if (trimmed.startsWith('{')) {
+          final map = jsonDecode(trimmed) as Map<String, dynamic>;
+          final userMsg = (map['userMessage'] ?? '').toString();
+          final reply = (map['correctedReply'] ?? '').toString();
+          if (userMsg.isNotEmpty && reply.isNotEmpty) {
+            result.add({
+              'id': (map['id'] ?? '').toString(),
+              'userMessage': userMsg,
+              'correctedReply': reply,
+              'note': (map['note'] ?? '').toString(),
+            });
+            continue;
+          }
+        }
+      } catch (_) {
+        // Fall through to legacy parsing
+      }
+      // Legacy ':::' format: id:::userMessage:::correctedReply
       final parts = e.split(':::');
-      return {
+      result.add({
         'id': parts.isNotEmpty ? parts[0] : '',
         'userMessage': parts.length > 1 ? parts[1] : '',
         'correctedReply': parts.length > 2 ? parts[2] : '',
-      };
-    }).toList();
+        'note': '',
+      });
+    }
+    // Drop malformed entries with empty message or reply
+    result.removeWhere(
+      (m) =>
+          (m['userMessage'] ?? '').trim().isEmpty ||
+          (m['correctedReply'] ?? '').trim().isEmpty,
+    );
+    return result;
   }
 
-  /// Format training examples into few-shot prompt for AI system instructions
-  String formatTrainingPrompt() {
+  /// Format training examples into few-shot prompt for AI system instructions.
+  /// Bad-corrections (most recent) are prioritized; capped to [maxExamples]
+  /// so prompts stay small and fast.
+  String formatTrainingPrompt({int maxExamples = 12}) {
     final examples = trainingExamples;
     if (examples.isEmpty) return '';
 
+    // Most recent last in storage → take tail so newest style wins.
+    final capped = examples.length > maxExamples
+        ? examples.sublist(examples.length - maxExamples)
+        : examples;
+
     final sb = StringBuffer('\n\n--- LEARNED RESPONSE PATTERNS (CRITICAL) ---\n');
-    sb.writeln('When replying, follow these exact examples of how the user expects replies to look:');
-    for (final ex in examples) {
-      sb.writeln('Incoming: "${ex['userMessage']}" -> Reply: "${ex['correctedReply']}"');
+    sb.writeln(
+        'When replying, follow these exact examples of how Abhi replies. Copy this short Hinglish style strictly:');
+    for (final ex in capped) {
+      final note = (ex['note'] ?? '').trim();
+      if (note.isNotEmpty) {
+        sb.writeln(
+            'Incoming: "${ex['userMessage']}" -> Reply: "${ex['correctedReply']}" (Note: $note)');
+      } else {
+        sb.writeln(
+            'Incoming: "${ex['userMessage']}" -> Reply: "${ex['correctedReply']}"');
+      }
     }
     sb.writeln('Adopt this tone and concise style strictly.');
     return sb.toString();
@@ -223,14 +260,11 @@ class AppSettings extends HiveObject {
       'gemmaLocalServerUrl': gemmaLocalServerUrl,
       'gemmaLocalModel': gemmaLocalModel,
       'selectedLocalModel': selectedLocalModel,
-      'cerebrasApiKey': cerebrasApiKey,
-      'cerebrasModel': cerebrasModel,
       'groqApiKey': groqApiKey,
       'groqModel': groqModel,
       'geminiApiKey': geminiApiKey,
       'geminiModel': geminiModel,
       'trainingExamplesRaw': trainingExamplesRaw,
-      'cerebrasReplyLimit': cerebrasReplyLimit,
       'groqReplyLimit': groqReplyLimit,
       'geminiReplyLimit': geminiReplyLimit,
       'localReplyLimit': localReplyLimit,
@@ -251,8 +285,8 @@ class AppSettings extends HiveObject {
       ignoreGroupChats: json['ignoreGroupChats'] ?? true,
       darkMode: json['darkMode'] ?? false,
       aiReplyEnabled: json['aiReplyEnabled'] ?? false,
-      aiModelType: (json['aiModelType'] as String?) ?? 'cerebras_api',
-      aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.',
+      aiModelType: (json['aiModelType'] as String?) ?? 'phi_local',
+      aiSystemPrompt: json['aiSystemPrompt'] ?? 'You are Abhi. Reply short casual Hinglish, 1-10 words. Match incoming language. No polite assistant sentences.',
       scheduleEnabled: json['scheduleEnabled'] ?? false,
       scheduleStartHour: json['scheduleStartHour'] ?? 8,
       scheduleStartMinute: json['scheduleStartMinute'] ?? 0,
@@ -268,14 +302,11 @@ class AppSettings extends HiveObject {
       gemmaLocalServerUrl: (json['gemmaLocalServerUrl'] as String?) ?? '',
       gemmaLocalModel: (json['gemmaLocalModel'] as String?) ?? 'llama_3_2_1b',
       selectedLocalModel: (json['selectedLocalModel'] as String?) ?? 'llama_3_2_1b',
-      cerebrasApiKey: (json['cerebrasApiKey'] as String?) ?? '',
-      cerebrasModel: (json['cerebrasModel'] as String?) ?? 'llama-3.3-70b',
       groqApiKey: (json['groqApiKey'] as String?) ?? '',
       groqModel: CloudAiModel.normalizeGroqModel(json['groqModel'] as String?),
       geminiApiKey: (json['geminiApiKey'] as String?) ?? '',
       geminiModel: CloudAiModel.normalizeGeminiModel(json['geminiModel'] as String?),
       trainingExamplesRaw: (json['trainingExamplesRaw'] as List?)?.cast<String>() ?? [],
-      cerebrasReplyLimit: (json['cerebrasReplyLimit'] as num?)?.toInt() ?? 0,
       groqReplyLimit: (json['groqReplyLimit'] as num?)?.toInt() ?? 0,
       geminiReplyLimit: (json['geminiReplyLimit'] as num?)?.toInt() ?? 0,
       localReplyLimit: (json['localReplyLimit'] as num?)?.toInt() ?? 0,
@@ -312,14 +343,11 @@ class AppSettings extends HiveObject {
     String? gemmaLocalServerUrl,
     String? gemmaLocalModel,
     String? selectedLocalModel,
-    String? cerebrasApiKey,
-    String? cerebrasModel,
     String? groqApiKey,
     String? groqModel,
     String? geminiApiKey,
     String? geminiModel,
     List<String>? trainingExamplesRaw,
-    int? cerebrasReplyLimit,
     int? groqReplyLimit,
     int? geminiReplyLimit,
     int? localReplyLimit,
@@ -353,14 +381,11 @@ class AppSettings extends HiveObject {
       gemmaLocalServerUrl: gemmaLocalServerUrl ?? this.gemmaLocalServerUrl,
       gemmaLocalModel: gemmaLocalModel ?? this.gemmaLocalModel,
       selectedLocalModel: selectedLocalModel ?? this.selectedLocalModel,
-      cerebrasApiKey: cerebrasApiKey ?? this.cerebrasApiKey,
-      cerebrasModel: cerebrasModel ?? this.cerebrasModel,
       groqApiKey: groqApiKey ?? this.groqApiKey,
       groqModel: groqModel ?? this.groqModel,
       geminiApiKey: geminiApiKey ?? this.geminiApiKey,
       geminiModel: geminiModel ?? this.geminiModel,
       trainingExamplesRaw: trainingExamplesRaw ?? this.trainingExamplesRaw,
-      cerebrasReplyLimit: cerebrasReplyLimit ?? this.cerebrasReplyLimit,
       groqReplyLimit: groqReplyLimit ?? this.groqReplyLimit,
       geminiReplyLimit: geminiReplyLimit ?? this.geminiReplyLimit,
       localReplyLimit: localReplyLimit ?? this.localReplyLimit,

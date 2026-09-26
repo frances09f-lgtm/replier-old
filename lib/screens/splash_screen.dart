@@ -45,6 +45,12 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
           await notifier.addRule(rule);
         }
       } else {
+        // One-time cleanup: drop retired generic defaults so AI handles
+        // small-talk instead of canned Ha/Hmm. Safe: only isDefault rules
+        // with purely-retired triggers are removed.
+        try {
+          await notifier.deleteRetiredHijackDefaults();
+        } catch (_) {}
         await notifier.refreshRules();
       }
     } catch (e) {

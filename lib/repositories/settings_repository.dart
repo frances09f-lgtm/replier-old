@@ -163,16 +163,6 @@ class SettingsRepository {
     await updateSettings(updatedSettings);
   }
 
-  /// Update Cerebras API config
-  Future<void> updateCerebrasConfig(String apiKey, String model) async {
-    final settings = getSettings();
-    final updatedSettings = settings.copyWith(
-      cerebrasApiKey: apiKey,
-      cerebrasModel: model,
-    );
-    await updateSettings(updatedSettings);
-  }
-
   /// Update Groq API config
   Future<void> updateGroqConfig(String apiKey, String model) async {
     final settings = getSettings();
@@ -202,14 +192,12 @@ class SettingsRepository {
 
   /// Update per-engine daily reply limits (0 = unlimited)
   Future<void> updateAiReplyLimits({
-    int? cerebrasReplyLimit,
     int? groqReplyLimit,
     int? geminiReplyLimit,
     int? localReplyLimit,
   }) async {
     final settings = getSettings();
     final updatedSettings = settings.copyWith(
-      cerebrasReplyLimit: cerebrasReplyLimit,
       groqReplyLimit: groqReplyLimit,
       geminiReplyLimit: geminiReplyLimit,
       localReplyLimit: localReplyLimit,
@@ -359,17 +347,24 @@ class SettingsRepository {
     return DateTime.now().millisecondsSinceEpoch < settings.busyUntilTimestamp;
   }
 
-  /// Add a training example pair
-  Future<void> addTrainingExample(String userMessage, String correctedReply) async {
+  /// Add a training example pair (with optional style note).
+  /// Keeps at most 50 examples (FIFO) so prompts stay small.
+  Future<void> addTrainingExample(String userMessage, String correctedReply,
+      {String note = ''}) async {
     final settings = getSettings();
     final list = List<String>.from(settings.trainingExamplesRaw);
     final entry = {
       'id': DateTime.now().millisecondsSinceEpoch.toString(),
       'userMessage': userMessage,
       'correctedReply': correctedReply,
+      'note': note,
       'timestamp': DateTime.now().toIso8601String(),
     };
     list.add(jsonEncode(entry));
+    // Cap to 50 most recent
+    while (list.length > 50) {
+      list.removeAt(0);
+    }
     final updatedSettings = settings.copyWith(trainingExamplesRaw: list);
     await updateSettings(updatedSettings);
   }

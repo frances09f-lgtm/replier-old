@@ -7,7 +7,7 @@ void main() {
       'You are an AI assistant generating an appropriate reply to an incoming message.';
   const sender = 'Alex';
 
-  group('Groq/Cerebras OpenAI-compatible payload', () {
+  group('Groq OpenAI-compatible payload', () {
     test('contains incoming message and system prompt', () {
       final formatted = CloudAiRequestBuilder.buildFormattedSystemPrompt(
         systemPrompt,
@@ -62,31 +62,6 @@ void main() {
       final sysText =
           ((sys['parts'] as List).first as Map)['text'] as String;
       expect(sysText, contains(systemPrompt));
-    });
-  });
-
-  group('Cerebras payload', () {
-    test('uses same OpenAI message structure as Groq', () {
-      final formatted = CloudAiRequestBuilder.buildFormattedSystemPrompt(
-        systemPrompt,
-        sender,
-      );
-      final payload = CloudAiRequestBuilder.buildOpenAiCompatiblePayload(
-        model: 'llama-3.3-70b',
-        systemPrompt: formatted,
-        incomingMessage: incoming,
-        senderName: sender,
-      );
-      expect(payload['model'], 'llama-3.3-70b');
-      expect(
-        CloudAiRequestBuilder.openAiPayloadContainsMessageAndSystem(
-          payload,
-          formatted,
-          incoming,
-          sender,
-        ),
-        isTrue,
-      );
     });
   });
 

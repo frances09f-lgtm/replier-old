@@ -77,37 +77,14 @@ final List<Rule> defaultRules = [
   _rule(triggers: ['chutiya'], replies: ['Tu']),
   _rule(triggers: ['bhadvya'], replies: ['🤣']),
 
-  // ── Confirmation ───────────────────────────────────────────────────────
-  _rule(triggers: ['ha ka'], replies: ['Ha']),
-  _rule(triggers: ['ho ka'], replies: ['Ho']),
-  _rule(triggers: ['khara ka'], replies: ['Ho']),
-  _rule(triggers: ['sure ka'], replies: ['Hmm']),
-  _rule(triggers: ['acha'], replies: ['Ha']),
-  _rule(triggers: ['ok', 'okay', 'k'], replies: ['Ha']),
-
-  // ── Who ────────────────────────────────────────────────────────────────
-  _rule(
-    triggers: ['kon', 'kon ahe', 'kon hota'],
-    replies: ['Mahit nahi'],
-  ),
-
-  // ── Thanks ─────────────────────────────────────────────────────────────
-  _rule(
-    triggers: ['thanks', 'thank you', 'thx'],
-    replies: ['Hmm'],
-  ),
-
   // ── Bye ────────────────────────────────────────────────────────────────
   _rule(triggers: ['bye', 'by'], replies: ['By']),
   _rule(triggers: ['nighato', 'chalto'], replies: ['By']),
   _rule(triggers: ['tc', 'take care'], replies: ['Tu pn']),
 
-  // ── Common Questions ───────────────────────────────────────────────────
-  _rule(triggers: ['free ahes'], replies: ['Nahi']),
-  _rule(triggers: ['online ahes'], replies: ['Hmm']),
-  _rule(triggers: ['reply ka nahi dila'], replies: ['Kam hota']),
-  _rule(triggers: ['aalas ka'], replies: ['Nahi']),
-  _rule(triggers: ['kay zala'], replies: ['Ky nahi']),
-  _rule(triggers: ['kuthe hotas'], replies: ['Baher hoto']),
-  _rule(triggers: ['miss kelas'], replies: ['Hmm']),
+  // NOTE: Generic small-talk (ok/okay/k, thanks, acha, ha ka/ho ka,
+  // kon, free/online/...) intentionally NOT included as default rules —
+  // Groq AI handles those with context so replies sound natural
+  // instead of canned. Existing users keep their old rules; new installs
+  // get only the style-defining rules above.
 ];

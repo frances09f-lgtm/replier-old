@@ -163,7 +163,7 @@ class MainActivity : FlutterActivity() {
                     val engineType = call.argument<String>("engineType") ?: ruleEngine.getAiModelType()
                     val localModelId = call.argument<String>("localModelId") ?: ruleEngine.getSelectedLocalModel()
                     val message = call.argument<String>("message") ?: ""
-                    val systemPrompt = call.argument<String>("systemPrompt") ?: ruleEngine.getAiSystemPrompt()
+                    val systemPrompt = call.argument<String>("systemPrompt") ?: ruleEngine.getAiSystemPromptWithTraining()
                     val historyRaw = call.argument<List<Map<String, String>>>("history") ?: emptyList()
 
                     val history = historyRaw.mapNotNull { m ->
@@ -203,35 +203,6 @@ class MainActivity : FlutterActivity() {
                     }
 
                     when (engineType) {
-                        "cerebras_api" -> {
-                            val apiKey = ruleEngine.getCerebrasApiKey()
-                            if (apiKey.isBlank()) {
-                                invokeLocalFallback("Cerebras API key is missing")
-                            } else {
-                                val model = ruleEngine.getCerebrasModel()
-                                CloudAiService.getInstance(applicationContext).generateReply(
-                                    engineType = "cerebras_api",
-                                    apiKey = apiKey,
-                                    model = model,
-                                    senderName = "User",
-                                    incomingMessages = listOf(message),
-                                    systemPrompt = systemPrompt,
-                                    conversationHistory = history
-                                ) { reply, usage ->
-                                    if (reply != null) {
-                                        runOnUiThread {
-                                            result.success(mapOf(
-                                                "reply" to reply,
-                                                "model" to engineType,
-                                                "fallback" to false
-                                            ))
-                                        }
-                                    } else {
-                                        invokeLocalFallback(usage?.error ?: "Cerebras API error")
-                                    }
-                                }
-                            }
-                        }
                         "groq_api" -> {
                             val apiKey = ruleEngine.getGroqApiKey()
                             if (apiKey.isBlank()) {

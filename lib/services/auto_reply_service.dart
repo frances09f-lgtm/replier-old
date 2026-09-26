@@ -109,6 +109,16 @@ class AutoReplyService {
 
   Future<void> _maybeLog(NotificationData notification) async {
     try {
+      // Skip self-sent / outgoing notifications (never log or extract notes from them)
+      final senderLower = notification.sender.trim().toLowerCase();
+      if (senderLower == 'you' || senderLower == 'me') return;
+      final msgLower = notification.message.trim().toLowerCase();
+      if (msgLower.startsWith('you:') ||
+          msgLower.startsWith('me:') ||
+          msgLower.startsWith('you sent:')) {
+        return;
+      }
+
       // Only log if native would have replied (same rule check, no sending)
       final allRules = _ruleRepository.getEnabledRules();
       final lower = notification.message.trim().toLowerCase();
@@ -164,9 +174,11 @@ class AutoReplyService {
       // Only log AI replies here (rule-based replies are logged in _maybeLog)
       if (data['isAiReply'] != true) return;
 
+      final rawOriginal = (data['originalMessage'] ?? '').toString().trim();
       final log = _logRepository.createLog(
         sender: data['sender'] ?? '',
-        originalMessage: 'AI Generated Reply',
+        originalMessage:
+            rawOriginal.isNotEmpty ? rawOriginal : 'AI Generated Reply',
         autoReplySent: data['replyText'] ?? '',
         appName: data['appName'] ?? '',
         ruleId: '',

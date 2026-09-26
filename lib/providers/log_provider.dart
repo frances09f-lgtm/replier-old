@@ -55,20 +55,54 @@ class LogsNotifier extends StateNotifier<List<ReplyLog>> {
   ReplyLog? getLastReplyLog() {
     return _repository.getLastReplyLog();
   }
+
+  Future<void> rateLog(
+    String id, {
+    required int rating,
+    String feedbackNote = '',
+    String correctedReply = '',
+    bool trained = false,
+  }) async {
+    await _repository.rateLog(
+      id,
+      rating: rating,
+      feedbackNote: feedbackNote,
+      correctedReply: correctedReply,
+      trained: trained,
+    );
+    state = _repository.getAllLogs();
+  }
 }
 
 /// Provider for app filter
 final appFilterProvider = StateProvider<String?>((ref) => null);
 
+/// Feedback filter: 'all', 'bad', 'unrated', 'good'
+final logFeedbackFilterProvider = StateProvider<String>((ref) => 'all');
+
 /// Provider for filtered logs
 final filteredLogsProvider = Provider<List<ReplyLog>>((ref) {
   final logs = ref.watch(logsProvider);
   final appFilter = ref.watch(appFilterProvider);
-  
-  if (appFilter == null || appFilter.isEmpty) {
-    return logs;
+  final feedbackFilter = ref.watch(logFeedbackFilterProvider);
+
+  var result = logs;
+  if (appFilter != null && appFilter.isNotEmpty) {
+    result = result.where((l) => l.appName == appFilter).toList();
   }
-  
-  final logsNotifier = ref.watch(logsProvider.notifier);
-  return logsNotifier.filterLogsByApp(appFilter);
+  switch (feedbackFilter) {
+    case 'bad':
+      result = result.where((l) => l.rating == -1).toList();
+      break;
+    case 'good':
+      result = result.where((l) => l.rating == 1).toList();
+      break;
+    case 'unrated':
+      result = result.where((l) => l.rating == 0).toList();
+      break;
+    case 'all':
+    default:
+      break;
+  }
+  return result;
 });

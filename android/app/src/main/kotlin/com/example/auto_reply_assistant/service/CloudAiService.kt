@@ -60,16 +60,6 @@ class CloudAiService private constructor(private val context: Context) {
                 logRequestDebug(engineType, model, formattedSystemPrompt, combinedMessage, effectiveSender)
 
                 val result = when (engineType) {
-                    "cerebras_api" -> callOpenAiCompatible(
-                        endpoint = "https://api.cerebras.ai/v1/chat/completions",
-                        apiKey = apiKey,
-                        model = if (model.isNotBlank()) model else "llama-3.3-70b",
-                        systemPrompt = formattedSystemPrompt,
-                        incomingMessage = combinedMessage,
-                        senderName = effectiveSender,
-                        history = conversationHistory,
-                        provider = "cerebras_api",
-                    )
                     "groq_api" -> callOpenAiCompatible(
                         endpoint = "https://api.groq.com/openai/v1/chat/completions",
                         apiKey = apiKey,

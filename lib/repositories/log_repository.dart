@@ -177,4 +177,24 @@ class LogRepository {
       ruleId: ruleId,
     );
   }
+
+  /// Save user feedback (thumbs rating + optional correction) on a log.
+  Future<void> rateLog(
+    String id, {
+    required int rating,
+    String feedbackNote = '',
+    String correctedReply = '',
+    bool trained = false,
+  }) async {
+    final box = HiveConfig.getLogsBox();
+    final log = box.get(id);
+    if (log == null) return;
+    final updated = log.copyWith(
+      rating: rating,
+      feedbackNote: feedbackNote,
+      correctedReply: correctedReply,
+      trained: trained,
+    );
+    await box.put(id, updated);
+  }
 }

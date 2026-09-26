@@ -59,7 +59,6 @@ void main() {
 
   group('Free tier baseline limit checks', () {
     const freeTierLimits = {
-      'cerebras_api': 1000,
       'groq_api': 1000,
       'gemini_api': 500,
       'phi_local': 0,
@@ -69,7 +68,6 @@ void main() {
     test('Groq and Gemini have realistic free tier baseline limits', () {
       expect(freeTierLimits['groq_api'], equals(1000));
       expect(freeTierLimits['gemini_api'], equals(500));
-      expect(freeTierLimits['cerebras_api'], equals(1000));
       expect(freeTierLimits['phi_local'], equals(0));
     });
 

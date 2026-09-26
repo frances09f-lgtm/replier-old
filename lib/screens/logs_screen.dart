@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../models/reply_log.dart';
 import '../providers/log_provider.dart';
+import '../providers/settings_provider.dart';
 
 /// Screen for viewing reply logs
 class LogsScreen extends ConsumerWidget {
@@ -12,6 +13,7 @@ class LogsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final logs = ref.watch(filteredLogsProvider);
     final appFilter = ref.watch(appFilterProvider);
+    final feedbackFilter = ref.watch(logFeedbackFilterProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -43,16 +45,37 @@ class LogsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: logs.isEmpty
-          ? _EmptyLogsView()
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: logs.length,
-              itemBuilder: (context, index) {
-                final log = logs[index];
-                return _LogCard(log: log);
-              },
+      body: Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                _FeedbackChip(label: 'All', value: 'all', current: feedbackFilter, ref: ref),
+                const SizedBox(width: 8),
+                _FeedbackChip(label: 'Bad 👎', value: 'bad', current: feedbackFilter, ref: ref),
+                const SizedBox(width: 8),
+                _FeedbackChip(label: 'Unrated', value: 'unrated', current: feedbackFilter, ref: ref),
+                const SizedBox(width: 8),
+                _FeedbackChip(label: 'Good 👍', value: 'good', current: feedbackFilter, ref: ref),
+              ],
             ),
+          ),
+          Expanded(
+            child: logs.isEmpty
+                ? _EmptyLogsView()
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: logs.length,
+                    itemBuilder: (context, index) {
+                      final log = logs[index];
+                      return _LogCard(log: log);
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -116,13 +139,40 @@ class _EmptyLogsView extends StatelessWidget {
   }
 }
 
-class _LogCard extends StatelessWidget {
+class _FeedbackChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final String current;
+  final WidgetRef ref;
+
+  const _FeedbackChip({
+    required this.label,
+    required this.value,
+    required this.current,
+    required this.ref,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = current == value;
+    return FilterChip(
+      label: Text(label, style: const TextStyle(fontSize: 12)),
+      selected: selected,
+      onSelected: (_) =>
+          ref.read(logFeedbackFilterProvider.notifier).state = value,
+    );
+  }
+}
+
+class _LogCard extends ConsumerWidget {
   final ReplyLog log;
 
   const _LogCard({required this.log});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isGood = log.rating == 1;
+    final isBad = log.rating == -1;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -144,6 +194,22 @@ class _LogCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (log.aiModel.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      log.aiModel,
+                      style:
+                          const TextStyle(fontSize: 10, color: Colors.blue),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 Text(
                   DateFormat('MMM dd, HH:mm').format(log.dateTime),
@@ -166,43 +232,281 @@ class _LogCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.message, size: 16),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    log.originalMessage,
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(height: 8),
             Container(
-              padding: const EdgeInsets.all(8),
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.green[50],
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(8),
+                border: const Border(
+                  left: BorderSide(color: Colors.blue, width: 4),
+                ),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.reply, size: 16, color: Colors.green),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      log.autoReplySent,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.green[900],
-                      ),
+                  Text(
+                    'THEY SAID:',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Theme.of(context).colorScheme.primary,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    log.originalMessage.isNotEmpty
+                        ? log.originalMessage
+                        : '(no incoming text captured)',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                borderRadius: BorderRadius.circular(8),
+                border: const Border(
+                  left: BorderSide(color: Colors.green, width: 4),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'APP REPLIED:',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    log.autoReplySent,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (log.trained && log.correctedReply.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green, width: 0.6),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle,
+                        size: 14, color: Colors.green),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Trained: "${log.correctedReply}"',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                Theme.of(context).colorScheme.onSurface),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                IconButton(
+                  icon: Icon(
+                    Icons.thumb_up,
+                    size: 20,
+                    color: isGood ? Colors.green : Colors.grey,
+                  ),
+                  tooltip: 'Good reply',
+                  onPressed: () =>
+                      _rateGood(context, ref, log),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.thumb_down,
+                    size: 20,
+                    color: isBad ? Colors.red : Colors.grey,
+                  ),
+                  tooltip: 'Bad reply',
+                  onPressed: () =>
+                      _showFeedbackDialog(context, ref, log),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.school, size: 16),
+                  label: Text(
+                    log.trained ? 'Edit training' : 'Teach better reply',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  onPressed: () =>
+                      _showFeedbackDialog(context, ref, log),
+                ),
+              ],
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Batch logs join with " | " — training needs the atomic last message.
+  String _trainingKey(String originalMessage) {
+    final parts = originalMessage.split(' | ');
+    return parts.last.trim().isNotEmpty
+        ? parts.last.trim()
+        : originalMessage.trim();
+  }
+
+  Future<void> _rateGood(
+      BuildContext context, WidgetRef ref, ReplyLog target) async {
+    // Thumbs up: save as positive training example immediately.
+    await ref.read(logsProvider.notifier).rateLog(
+          target.id,
+          rating: 1,
+          feedbackNote: '',
+          correctedReply: target.autoReplySent,
+          trained: true,
+        );
+    await ref
+        .read(appSettingsProvider.notifier)
+        .addTrainingExample(
+            _trainingKey(target.originalMessage), target.autoReplySent);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('👍 Saved! Future replies will copy this style.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showFeedbackDialog(
+      BuildContext context, WidgetRef ref, ReplyLog target) {
+    final noteCtrl = TextEditingController(text: target.feedbackNote);
+    final correctCtrl = TextEditingController(
+      text: target.correctedReply.isNotEmpty
+          ? target.correctedReply
+          : target.autoReplySent,
+    );
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.school, color: Colors.blue),
+            SizedBox(width: 8),
+            Text('Teach better reply', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Incoming: "${target.originalMessage}"',
+                style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Sent: "${target.autoReplySent}"',
+                style:
+                    const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 12),
+              const Text('What was wrong? (optional)',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              TextField(
+                controller: noteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. too formal, too long',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('Correct reply should be: *',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              TextField(
+                controller: correctCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. Ky nahi',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final corrected = correctCtrl.text.trim();
+              if (corrected.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Please write the correct reply.')),
+                );
+                return;
+              }
+              final note = noteCtrl.text.trim();
+              await ref.read(logsProvider.notifier).rateLog(
+                    target.id,
+                    rating: -1,
+                    feedbackNote: note,
+                    correctedReply: corrected,
+                    trained: true,
+                  );
+              await ref
+                  .read(appSettingsProvider.notifier)
+                  .addTrainingExample(
+                      _trainingKey(target.originalMessage), corrected,
+                      note: note);
+              if (ctx.mounted) {
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        '✅ Trained! Next similar message will use this style.'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+            child: const Text('Save training'),
+          ),
+        ],
       ),
     );
   }

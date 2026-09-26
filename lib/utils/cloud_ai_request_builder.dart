@@ -10,15 +10,31 @@ class CloudAiRequestBuilder {
         senderName.trim().isEmpty ? 'the user' : senderName.trim();
     final buffer = StringBuffer()
       ..writeln(
-        'You are an AI assistant auto-replying to incoming messages from '
-        '$effectiveSender on behalf of the app user.',
+        'You are Abhi replying on WhatsApp to $effectiveSender. '
+        'Sound like a real person, NOT an assistant.',
       )
+      ..writeln();
+
+    // Defaults FIRST so user corrections below override them (recency wins).
+    buffer
+      ..writeln("Abhi's default style (use ONLY if nothing below matches):")
+      ..writeln(
+        '- Short mixed Hinglish/Marathi+English, casual. 1-10 words typical, max 15 words.',
+      )
+      ..writeln(
+        '- Match the incoming language (English, Marathi, or mixed Hinglish).',
+      )
+      ..writeln(
+        '- No full polite sentences, no "Sure! I\'d be happy", no explanations.',
+      )
+      ..writeln('- No emoji unless the incoming message has one.')
       ..writeln();
 
     final trimmedUserPrompt = userSystemPrompt.trim();
     if (trimmedUserPrompt.isNotEmpty) {
       buffer
-        ..writeln('User Guidelines & Persona:')
+        ..writeln(
+            'How Abhi ACTUALLY replies — FOLLOW THIS STRICTLY, it overrides the defaults above:')
         ..writeln(trimmedUserPrompt)
         ..writeln();
     }
@@ -26,12 +42,11 @@ class CloudAiRequestBuilder {
     buffer
       ..writeln('Instructions:')
       ..writeln(
-        '- Reply directly to $effectiveSender in a natural, friendly, and helpful tone.',
+        '- Reply directly to $effectiveSender. Output ONLY the message reply text.',
       )
       ..writeln(
-        '- Reply in the same language as the incoming message (e.g. English, Marathi, or mixed).',
+        '- If a LEARNED RESPONSE PATTERNS example matches the incoming message topic, copy its style/wording closely.',
       )
-      ..writeln('- Keep replies brief, conversational, and under 30 words.')
       ..writeln("- Do NOT repeat or echo $effectiveSender's message.")
       ..writeln(
         "- Do NOT include role prefixes like 'Assistant:', 'AI:', or '$effectiveSender:'. "
@@ -47,8 +62,8 @@ class CloudAiRequestBuilder {
     required String incomingMessage,
     required String senderName,
     List<Map<String, String>> history = const [],
-    int maxTokens = 100,
-    double temperature = 0.7,
+    int maxTokens = 80,
+    double temperature = 0.85,
   }) {
     final messages = <Map<String, String>>[
       {'role': 'system', 'content': systemPrompt},

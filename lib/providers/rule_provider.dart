@@ -77,6 +77,16 @@ class RulesNotifier extends StateNotifier<List<Rule>> {
     await _syncService.syncRules(state);
   }
 
+  /// Remove retired generic defaults that block AI. Returns count removed.
+  Future<int> deleteRetiredHijackDefaults() async {
+    final removed = await _repository.deleteRetiredHijackDefaults();
+    if (removed > 0) {
+      state = _repository.getAllRules();
+      await _syncService.syncRules(state);
+    }
+    return removed;
+  }
+
   /// Check if default rules have been loaded
   bool hasDefaultRules() {
     return _repository.hasDefaultRules();

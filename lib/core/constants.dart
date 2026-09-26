@@ -31,7 +31,7 @@ class AppConstants {
   static const bool defaultAiReplyEnabled = false;
   static const String defaultAiModelType = 'phi_local';
   static const String defaultSelectedLocalModel = 'llama_3_2_1b';
-  static const String defaultAiSystemPrompt = 'You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.';
+  static const String defaultAiSystemPrompt = 'You are Abhi. Reply short casual Hinglish, 1-10 words. Match incoming language. No polite assistant sentences.';
 
   // Schedule defaults
   static const bool defaultScheduleEnabled = false;

@@ -220,7 +220,6 @@ class DashboardScreen extends ConsumerWidget {
 
   // Known realistic free-tier daily limits per engine (used as defaults when not reported by API)
   static const Map<String, int> _freeTierLimits = {
-    'cerebras_api': 1000, // ~1M tokens/day & 30 RPM
     'groq_api': 1000,     // Modern Groq free-tier limit for 20B/70B models
     'gemini_api': 500,    // Google AI Studio Gemini 2.0/2.5 Flash free-tier cap
     'phi_local': 0,       // unlimited – on-device execution
@@ -242,7 +241,6 @@ class DashboardScreen extends ConsumerWidget {
     // Use user-configured limit if set (> 0), otherwise live API reported limit, otherwise realistic free-tier default
     int limitFor(String engineId, AiProviderUsage? tokenStats) {
       final custom = switch (engineId) {
-        'cerebras_api' => settings.cerebrasReplyLimit,
         'groq_api' => settings.groqReplyLimit,
         'gemini_api' => settings.geminiReplyLimit,
         'phi_local' || 'deepseek_local' => settings.localReplyLimit,
@@ -280,7 +278,6 @@ class DashboardScreen extends ConsumerWidget {
                     aiUsage.providerStats[engineIds[i]],
                     limitFor(engineIds[i], aiUsage.providerStats[engineIds[i]]),
                     isCustomLimit: switch (engineIds[i]) {
-                      'cerebras_api' => settings.cerebrasReplyLimit > 0,
                       'groq_api' => settings.groqReplyLimit > 0,
                       'gemini_api' => settings.geminiReplyLimit > 0,
                       'phi_local' || 'deepseek_local' => settings.localReplyLimit > 0,

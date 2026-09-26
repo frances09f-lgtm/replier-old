@@ -43,6 +43,8 @@ class RuleEngine(private val context: Context) {
         private const val RULES_FILE = "auto_reply_rules.json"
         private const val SETTINGS_FILE = "auto_reply_settings.json"
         private const val KEY_AI_PROVIDER_STATS = "ai_provider_stats_json"
+        private const val KEY_SETTINGS_MIRROR = "settings_json_mirror"
+        private const val KEY_TRAINING_EXAMPLES = "training_examples_raw"
     }
 
     private val prefs get() = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -50,13 +52,19 @@ class RuleEngine(private val context: Context) {
     // ── File helpers ─────────────────────────────────────────────────────────
 
     /**
-     * Returns the app's getFilesDir() path — same as Flutter's
-     * getApplicationDocumentsDirectory() on Android.
+     * Returns the app's getFilesDir() path.
+     * NOTE: Flutter's getApplicationDocumentsDirectory() on Android returns
+     * <filesDir>/.. /app_flutter, NOT filesDir itself — so we check both.
      */
     private fun filesDir(): File = context.filesDir
 
+    private fun flutterDocsFile(name: String): File {
+        // Flutter path_provider: filesDir/../app_flutter/<name>
+        return File(context.filesDir.parentFile, "app_flutter/$name")
+    }
+
     private fun readRulesJson(): String {
-        // Primary: read from file written by Flutter
+        // Primary: read from file written by Flutter (filesDir)
         val file = File(filesDir(), RULES_FILE)
         if (file.exists()) {
             try {
@@ -66,8 +74,21 @@ class RuleEngine(private val context: Context) {
                     return content
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "readRulesJson: failed to read file, falling back to prefs", e)
+                Log.e(TAG, "readRulesJson: failed to read file, falling back", e)
             }
+        }
+        // Secondary: Flutter app_flutter dir (actual path_provider location)
+        try {
+            val alt = flutterDocsFile(RULES_FILE)
+            if (alt.exists()) {
+                val content = alt.readText()
+                if (content.isNotBlank()) {
+                    Log.d(TAG, "readRulesJson: read ${content.length} bytes from app_flutter")
+                    return content
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "readRulesJson: app_flutter read failed", e)
         }
         // Fallback: SharedPreferences (written via MethodChannel)
         val fromPrefs = prefs.getString(KEY_RULES, "[]") ?: "[]"
@@ -85,6 +106,18 @@ class RuleEngine(private val context: Context) {
                 Log.e(TAG, "readSettingsJson: failed to read file", e)
             }
         }
+        try {
+            val alt = flutterDocsFile(SETTINGS_FILE)
+            if (alt.exists()) {
+                val content = alt.readText()
+                if (content.isNotBlank()) return content
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "readSettingsJson: app_flutter read failed", e)
+        }
+        // Fallback to prefs-mirrored settings (see saveSettingsPrefsMirror)
+        val mirrored = prefs.getString(KEY_SETTINGS_MIRROR, null)
+        if (!mirrored.isNullOrBlank()) return mirrored
         return "{}"
     }
 
@@ -213,7 +246,15 @@ class RuleEngine(private val context: Context) {
 
     /** Check if a message was sent by this app (self-reply guard) */
     fun isSelfSentMessage(message: String, sender: String = ""): Boolean {
-        val isSelf = SelfSentReplyGuard.isSelfSentMessage(message, sender, sentReplyTexts)
+        val now = System.currentTimeMillis()
+        pruneSentReplies(now)
+        val perSender = sentRepliesBySender[sender.trim().lowercase()] ?: emptyMap()
+        val isSelf = SelfSentReplyGuard.isSelfSentMessage(
+            message = message,
+            sender = sender,
+            sentRepliesForSender = perSender,
+            nowMs = now,
+        )
         if (isSelf) {
             Log.d(TAG, "isSelfSentMessage: sender='$sender' message='$message'")
         }
@@ -385,25 +426,9 @@ class RuleEngine(private val context: Context) {
     fun getAiModelType(): String {
         try {
             val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("aiModelType", "cerebras_api")
+            if (json != "{}") return JSONObject(json).optString("aiModelType", "phi_local")
         } catch (_: Exception) {}
-        return prefs.getString("ai_model_type", "cerebras_api") ?: "cerebras_api"
-    }
-
-    fun getCerebrasApiKey(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("cerebrasApiKey", "")
-        } catch (_: Exception) {}
-        return prefs.getString("cerebras_api_key", "") ?: ""
-    }
-
-    fun getCerebrasModel(): String {
-        try {
-            val json = readSettingsJson()
-            if (json != "{}") return JSONObject(json).optString("cerebrasModel", "llama-3.3-70b")
-        } catch (_: Exception) {}
-        return prefs.getString("cerebras_model", "llama-3.3-70b") ?: "llama-3.3-70b"
+        return prefs.getString("ai_model_type", "phi_local") ?: "phi_local"
     }
 
     fun getGroqApiKey(): String {
@@ -504,10 +529,80 @@ class RuleEngine(private val context: Context) {
         try {
             val json = readSettingsJson()
             if (json != "{}") return JSONObject(json).optString("aiSystemPrompt",
-                "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.")
+                "You are Abhi replying on WhatsApp. Short casual Hinglish, 1-10 words. Match incoming language.")
         } catch (_: Exception) {}
         return prefs.getString("ai_system_prompt",
-            "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational.") ?: ""
+            "You are Abhi replying on WhatsApp. Short casual Hinglish, 1-10 words. Match incoming language.") ?: ""
+    }
+
+    /** Raw training examples JSON strings (from Flutter trainingExamplesRaw). */
+    fun getTrainingExamplesRaw(): List<String> {
+        try {
+            val json = readSettingsJson()
+            if (json != "{}") {
+                val arr = JSONObject(json).optJSONArray("trainingExamplesRaw")
+                if (arr != null) return (0 until arr.length()).map { arr.getString(it) }
+            }
+        } catch (_: Exception) {}
+        return try {
+            val raw = prefs.getString(KEY_TRAINING_EXAMPLES, "[]") ?: "[]"
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    /**
+     * Format training examples into few-shot prompt block.
+     * Mirrors Dart AppSettings.formatTrainingPrompt. Capped to [maxExamples]
+     * most recent so prompts stay small. Handles JSON format + legacy ':::'.
+     */
+    fun getTrainingPrompt(maxExamples: Int = 12): String {
+        val rawList = getTrainingExamplesRaw()
+        if (rawList.isEmpty()) return ""
+        data class Ex(val user: String, val reply: String, val note: String)
+        val parsed = mutableListOf<Ex>()
+        for (raw in rawList) {
+            try {
+                val t = raw.trim()
+                if (t.startsWith("{")) {
+                    val o = JSONObject(t)
+                    val u = o.optString("userMessage", "").trim()
+                    val r = o.optString("correctedReply", "").trim()
+                    if (u.isNotEmpty() && r.isNotEmpty()) {
+                        parsed.add(Ex(u, r, o.optString("note", "").trim()))
+                        continue
+                    }
+                }
+            } catch (_: Exception) {}
+            // Legacy ::: format
+            try {
+                val parts = raw.split(":::")
+                val u = if (parts.size > 1) parts[1].trim() else ""
+                val r = if (parts.size > 2) parts[2].trim() else ""
+                if (u.isNotEmpty() && r.isNotEmpty()) parsed.add(Ex(u, r, ""))
+            } catch (_: Exception) {}
+        }
+        if (parsed.isEmpty()) return ""
+        val capped = if (parsed.size > maxExamples) parsed.takeLast(maxExamples) else parsed
+        val sb = StringBuilder()
+        sb.append("\n\n--- LEARNED RESPONSE PATTERNS (CRITICAL) ---\n")
+        sb.append("When replying, follow these exact examples of how Abhi replies. Copy this short Hinglish style strictly:\n")
+        for (ex in capped) {
+            if (ex.note.isNotEmpty()) {
+                sb.append("Incoming: \"${ex.user}\" -> Reply: \"${ex.reply}\" (Note: ${ex.note})\n")
+            } else {
+                sb.append("Incoming: \"${ex.user}\" -> Reply: \"${ex.reply}\"\n")
+            }
+        }
+        sb.append("Adopt this tone and concise style strictly.")
+        return sb.toString()
+    }
+
+    /** Full system prompt for AI calls: base prompt + learned patterns. */
+    fun getAiSystemPromptWithTraining(): String {
+        val base = getAiSystemPrompt()
+        val training = getTrainingPrompt()
+        return if (training.isBlank()) base else "$base$training"
     }
 
     // ── AI Usage tracking ────────────────────────────────────────────────────
@@ -681,7 +776,6 @@ class RuleEngine(private val context: Context) {
             if (json != "{}") {
                 val obj = JSONObject(json)
                 return when (engineType) {
-                    "cerebras_api" -> obj.optInt("cerebrasReplyLimit", 0)
                     "groq_api" -> obj.optInt("groqReplyLimit", 0)
                     "gemini_api" -> obj.optInt("geminiReplyLimit", 0)
                     "phi_local", "deepseek_local" -> obj.optInt("localReplyLimit", 0)
@@ -697,10 +791,14 @@ class RuleEngine(private val context: Context) {
     private val recentReplies = mutableListOf<Triple<String, String, Long>>()
     private val dedupeWindowMs = 5 * 60 * 1000L // 5 minutes
 
-    // All reply texts this app has sent (including AI replies), to detect self-sent messages
+    // All reply texts this app has sent (including AI replies), to detect self-sent messages.
+    // Keyed per-sender so an echo from the SAME contact is caught without
+    // blocking other contacts that happen to send identical text.
     private val sentReplyTexts = mutableSetOf<String>()
     // Track sent messages with timestamps for cleanup
     private val sentReplyTimestamps = mutableListOf<Pair<String, Long>>()
+    private val sentRepliesBySender = mutableMapOf<String, MutableMap<String, Long>>()
+    private val sentReplyEchoWindowMs = SelfSentReplyGuard.ECHO_WINDOW_MS
 
     fun wasReplyRecentlySent(sender: String, replyText: String): Boolean {
         val now = System.currentTimeMillis()
@@ -709,17 +807,35 @@ class RuleEngine(private val context: Context) {
     }
 
     fun recordReplySent(sender: String, replyText: String) {
-        recentReplies.add(Triple(sender, replyText, System.currentTimeMillis()))
-        // Track the reply text for self-detection
-        sentReplyTexts.add(replyText.trim().lowercase())
-        sentReplyTimestamps.add(Pair(replyText.trim().lowercase(), System.currentTimeMillis()))
+        val now = System.currentTimeMillis()
+        recentReplies.add(Triple(sender, replyText, now))
+        // Track the reply text for self-detection (global + per-sender)
+        val normalizedReply = replyText.trim().lowercase()
+        sentReplyTexts.add(normalizedReply)
+        sentReplyTimestamps.add(Pair(normalizedReply, now))
+        if (normalizedReply.isNotBlank()) {
+            val perSender = sentRepliesBySender.getOrPut(sender.trim().lowercase()) { mutableMapOf() }
+            perSender[normalizedReply] = now
+        }
+        pruneSentReplies(now)
+        Log.d(TAG, "recordReplySent: tracked ${sentReplyTexts.size} sent reply texts")
+    }
+
+    private fun pruneSentReplies(now: Long) {
         // Cleanup old entries (keep last 10 minutes of sent replies)
-        val cutoff = System.currentTimeMillis() - 10 * 60 * 1000L
+        val cutoff = now - 10 * 60 * 1000L
         sentReplyTimestamps.removeAll { it.second < cutoff }
         sentReplyTexts.retainAll { text ->
             sentReplyTimestamps.any { it.first == text }
         }
-        Log.d(TAG, "recordReplySent: tracked ${sentReplyTexts.size} sent reply texts")
+        // Per-sender echo map: entries older than the echo window + margin are useless.
+        val echoCutoff = now - (sentReplyEchoWindowMs + 60_000L)
+        val emptySenders = mutableListOf<String>()
+        for ((senderKey, replies) in sentRepliesBySender) {
+            replies.entries.removeAll { it.value < echoCutoff }
+            if (replies.isEmpty()) emptySenders.add(senderKey)
+        }
+        emptySenders.forEach { sentRepliesBySender.remove(it) }
     }
 
     // ── Write helpers (called from Flutter sync via MethodChannel) ────────────
@@ -740,7 +856,11 @@ class RuleEngine(private val context: Context) {
         try {
             val obj = JSONObject(json)
             File(filesDir(), SETTINGS_FILE).writeText(json)
+            // Mirror full JSON for background reads when files are unavailable
+            val trainingArr = obj.optJSONArray("trainingExamplesRaw")
+            val trainingRaw = trainingArr?.toString() ?: "[]"
             prefs.edit()
+                .putString(KEY_SETTINGS_MIRROR, json)
                 .putBoolean(KEY_MASTER_ENABLED, obj.optBoolean("masterEnabled", true))
                 .putBoolean(KEY_WHATSAPP_ENABLED, obj.optBoolean("whatsappEnabled", true))
                 .putBoolean(KEY_INSTAGRAM_ENABLED, obj.optBoolean("instagramEnabled", true))
@@ -750,9 +870,7 @@ class RuleEngine(private val context: Context) {
                 .putBoolean(KEY_PREVENT_DUPLICATES, obj.optBoolean("preventDuplicateReplies", true))
                 .putBoolean("ai_reply_enabled", obj.optBoolean("aiReplyEnabled", false))
                 .putBoolean("fallback_to_local_model", obj.optBoolean("fallbackToLocalModel", true))
-                .putString("ai_model_type", obj.optString("aiModelType", "cerebras_api"))
-                .putString("cerebras_api_key", obj.optString("cerebrasApiKey", ""))
-                .putString("cerebras_model", obj.optString("cerebrasModel", "llama-3.3-70b"))
+                .putString("ai_model_type", obj.optString("aiModelType", "phi_local"))
                 .putString("groq_api_key", obj.optString("groqApiKey", ""))
                 .putString(
                     "groq_model",
@@ -766,7 +884,8 @@ class RuleEngine(private val context: Context) {
                     )
                 )
                 .putString("ai_system_prompt", obj.optString("aiSystemPrompt",
-                    "You are a friendly assistant. Reply naturally and helpfully to the message. Keep replies short and conversational."))
+                    "You are Abhi replying on WhatsApp. Short casual Hinglish, 1-10 words. Match incoming language."))
+                .putString(KEY_TRAINING_EXAMPLES, trainingRaw)
                 .putBoolean("schedule_enabled", obj.optBoolean("scheduleEnabled", false))
                 .putInt("schedule_start_hour", obj.optInt("scheduleStartHour", 8))
                 .putInt("schedule_start_minute", obj.optInt("scheduleStartMinute", 0))

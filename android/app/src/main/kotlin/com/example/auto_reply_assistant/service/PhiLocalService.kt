@@ -62,16 +62,6 @@ class PhiLocalService private constructor(private val context: Context) {
                 threads = 4,
                 contextSize = 4096,
             ),
-            "llama_3_2_3b" to ModelConfig(
-                id = "llama_3_2_3b",
-                displayName = "Llama 3.2 3B Instruct",
-                filename = "llama-3.2-3b-instruct-q4_k_m.gguf",
-                url = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-                sizeBytes = 2_020_000_000L,
-                description = "~2.0GB, highest quality reasoning (requires 6GB+ RAM)",
-                threads = 4,
-                contextSize = 4096,
-            ),
         )
 
         private const val LLAMA_BEGIN = "<|begin_of_text|>"
@@ -335,7 +325,7 @@ class PhiLocalService private constructor(private val context: Context) {
             sb.append("<|im_start|>user\n$currentTurnContent<|im_end|>\n")
             sb.append("<|im_start|>assistant\n")
         } else {
-            // Llama 3.2 Instruct chat template (for 1B and 3B)
+            // Llama 3.2 Instruct chat template (for 1B)
             sb.append("${LLAMA_BEGIN}${LLAMA_HDR_START}system${LLAMA_HDR_END}\n\n$optimizedSystemPrompt${LLAMA_EOT}\n")
 
             for (msg in history) {

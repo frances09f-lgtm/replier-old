@@ -59,6 +59,6 @@ class CloudAiRequestBuilderTest {
 
         assertEquals("hidden", payload.getString("reasoning_format"))
         assertEquals("low", payload.getString("reasoning_effort"))
-        assertEquals(256, payload.getInt("max_tokens"))
+        assertEquals(80, payload.getInt("max_tokens"))
     }
 }

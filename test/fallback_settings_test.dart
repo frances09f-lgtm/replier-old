@@ -34,7 +34,7 @@ void main() {
       expect(reEnabled.fallbackToLocalModel, isTrue);
     });
 
-    test('selectedLocalModel preserves qwen_2_5_1_5b and llama_3_2_3b across serialization', () {
+    test('selectedLocalModel preserves qwen_2_5_1_5b across serialization', () {
       final qwenSettings = AppSettings(
         lastUpdated: DateTime.now(),
         selectedLocalModel: 'qwen_2_5_1_5b',
@@ -42,11 +42,6 @@ void main() {
       final qwenJson = qwenSettings.toJson();
       expect(qwenJson['selectedLocalModel'], 'qwen_2_5_1_5b');
       expect(AppSettings.fromJson(qwenJson).selectedLocalModel, 'qwen_2_5_1_5b');
-
-      final llama3bSettings = qwenSettings.copyWith(selectedLocalModel: 'llama_3_2_3b');
-      final llama3bJson = llama3bSettings.toJson();
-      expect(llama3bJson['selectedLocalModel'], 'llama_3_2_3b');
-      expect(AppSettings.fromJson(llama3bJson).selectedLocalModel, 'llama_3_2_3b');
     });
   });
 }

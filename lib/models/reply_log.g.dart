@@ -1,4 +1,5 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
+// Manually extended for feedback fields (HiveFields 8-11) with backward compat.
 
 part of 'reply_log.dart';
 
@@ -24,14 +25,18 @@ class ReplyLogAdapter extends TypeAdapter<ReplyLog> {
       appName: fields[4] as String,
       dateTime: fields[5] as DateTime,
       ruleId: fields[6] as String,
-      aiModel: fields[7] as String,
+      aiModel: fields[7] as String? ?? '',
+      rating: (fields[8] as num?)?.toInt() ?? 0,
+      feedbackNote: fields[9] as String? ?? '',
+      correctedReply: fields[10] as String? ?? '',
+      trained: fields[11] as bool? ?? false,
     );
   }
 
   @override
   void write(BinaryWriter writer, ReplyLog obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -47,7 +52,15 @@ class ReplyLogAdapter extends TypeAdapter<ReplyLog> {
       ..writeByte(6)
       ..write(obj.ruleId)
       ..writeByte(7)
-      ..write(obj.aiModel);
+      ..write(obj.aiModel)
+      ..writeByte(8)
+      ..write(obj.rating)
+      ..writeByte(9)
+      ..write(obj.feedbackNote)
+      ..writeByte(10)
+      ..write(obj.correctedReply)
+      ..writeByte(11)
+      ..write(obj.trained);
   }
 
   @override
