@@ -27,6 +27,9 @@ class MessageBatcher(private val mainHandler: Handler) {
         val message: String,
         val notificationKey: String,
         val packageName: String,
+        val shortcutId: String?,
+        val sbnTag: String?,
+        val sbnId: Int?,
         val isGroupChat: Boolean,
         val timestamp: Long
     )
@@ -37,6 +40,9 @@ class MessageBatcher(private val mainHandler: Handler) {
      * @param messages All buffered messages in order
      * @param latestNotificationKey The key of the most recent notification (best candidate for reply)
      * @param packageName The app package (WhatsApp/Instagram)
+     * @param latestShortcutId Stable conversation shortcut ID, if available
+     * @param latestTag StatusBarNotification tag for the latest message
+     * @param latestId StatusBarNotification id for the latest message
      * @param isGroupChat Whether this is a group chat
      */
     data class BatchReadyCallback(
@@ -44,6 +50,9 @@ class MessageBatcher(private val mainHandler: Handler) {
         val messages: List<PendingMessage>,
         val latestNotificationKey: String,
         val packageName: String,
+        val latestShortcutId: String?,
+        val latestTag: String?,
+        val latestId: Int?,
         val isGroupChat: Boolean
     )
 
@@ -70,13 +79,19 @@ class MessageBatcher(private val mainHandler: Handler) {
         packageName: String,
         isGroupChat: Boolean,
         delayMs: Long,
-        onBatchReady: (BatchReadyCallback) -> Unit
+        shortcutId: String? = null,
+        sbnTag: String? = null,
+        sbnId: Int? = null,
+        onBatchReady: (BatchReadyCallback) -> Unit,
     ) {
         val pendingMsg = PendingMessage(
             sender = sender,
             message = message,
             notificationKey = notificationKey,
             packageName = packageName,
+            shortcutId = shortcutId,
+            sbnTag = sbnTag,
+            sbnId = sbnId,
             isGroupChat = isGroupChat,
             timestamp = System.currentTimeMillis()
         )
@@ -122,9 +137,10 @@ class MessageBatcher(private val mainHandler: Handler) {
         Log.d(TAG, "Firing batch for sender=$sender, ${messages.size} messages")
 
         // Use the latest notification key (most likely to still be active)
-        val latestKey = messages.last().notificationKey
-        val packageName = messages.last().packageName
-        val isGroupChat = messages.last().isGroupChat
+        val latest = messages.last()
+        val latestKey = latest.notificationKey
+        val packageName = latest.packageName
+        val isGroupChat = latest.isGroupChat
 
         onBatchReady(
             BatchReadyCallback(
@@ -132,6 +148,9 @@ class MessageBatcher(private val mainHandler: Handler) {
                 messages = messages,
                 latestNotificationKey = latestKey,
                 packageName = packageName,
+                latestShortcutId = latest.shortcutId,
+                latestTag = latest.sbnTag,
+                latestId = latest.sbnId,
                 isGroupChat = isGroupChat
             )
         )

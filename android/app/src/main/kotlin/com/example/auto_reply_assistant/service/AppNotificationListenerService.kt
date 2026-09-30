@@ -73,6 +73,10 @@ class AppNotificationListenerService : NotificationListenerService() {
     data class PendingReply(
         val confirmId: String,
         val notificationKey: String,
+        val packageName: String,
+        val shortcutId: String?,
+        val sbnTag: String?,
+        val sbnId: Int?,
         val sender: String,
         val replyText: String,
         val originalMessage: String,
@@ -90,6 +94,10 @@ class AppNotificationListenerService : NotificationListenerService() {
         val replyText: String,
         val originalMessage: String,
         val notificationKey: String,
+        val packageName: String?,
+        val shortcutId: String?,
+        val sbnTag: String?,
+        val sbnId: Int?,
     )
 
     /** In-memory store of pending confirmations, keyed by confirmId */
@@ -147,10 +155,23 @@ class AppNotificationListenerService : NotificationListenerService() {
         isAiReply: Boolean = false,
         aiModelType: String = "",
         originalMessage: String = "",
+        packageName: String? = null,
+        shortcutId: String? = null,
+        sbnTag: String? = null,
+        sbnId: Int? = null,
         onBeforeSend: (() -> Unit)? = null,
     ) {
         // Cancel any pending timer for this sender so multiple timers don't collide
         cancelScheduledReply(sender)
+
+        // Capture stable conversation identity now, while the original notification
+        // is most likely still posted. This is used later to verify we reply to
+        // the same conversation — never to a different chat with a similar name.
+        val resolvedIdentity = resolveConversationIdentity(key, packageName, shortcutId, sbnTag, sbnId)
+        val resolvedPackage = resolvedIdentity.first
+        val resolvedShortcut = resolvedIdentity.second
+        val resolvedTag = resolvedIdentity.third
+        val resolvedId = resolvedIdentity.fourth
 
         val delayMs = ruleEngine.getReplyDelayMs()
         notifyReplyScheduled(sender, replyText, delayMs)
@@ -158,7 +179,7 @@ class AppNotificationListenerService : NotificationListenerService() {
         if (delayMs <= 0L) {
             Log.d(TAG, "Delay is 0ms — sending reply immediately to '$sender'")
             onBeforeSend?.invoke()
-            sendReply(key, sender, replyText, isAiReply, aiModelType)
+            sendReply(key, sender, replyText, isAiReply, aiModelType, resolvedPackage, resolvedShortcut, resolvedTag, resolvedId)
             return
         }
 
@@ -170,7 +191,7 @@ class AppNotificationListenerService : NotificationListenerService() {
                 activeScheduledReplies.remove(senderKey(sender))
                 Log.d(TAG, "Delay timer (${delayMs}ms) finished for '$sender'. Sending reply...")
                 onBeforeSend?.invoke()
-                sendReply(key, sender, replyText, isAiReply, aiModelType)
+                sendReply(key, sender, replyText, isAiReply, aiModelType, resolvedPackage, resolvedShortcut, resolvedTag, resolvedId)
             } finally {
                 wakeLock?.let { wl ->
                     if (wl.isHeld) {
@@ -188,6 +209,10 @@ class AppNotificationListenerService : NotificationListenerService() {
             replyText = replyText,
             originalMessage = originalMessage,
             notificationKey = key,
+            packageName = resolvedPackage,
+            shortcutId = resolvedShortcut,
+            sbnTag = resolvedTag,
+            sbnId = resolvedId,
         )
 
         mainHandler.postDelayed(runnable, delayMs)
@@ -349,6 +374,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                         originalMessage = message,
                         isAiReply = false,
                         aiModelType = "busy_mode",
+                        packageName = packageName,
+                        shortcutId = getShortcutId(sbn),
+                        sbnTag = sbn.tag,
+                        sbnId = sbn.id,
                     )
                 } else {
                     val replyToSend = busyText
@@ -357,6 +386,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                         sender = sender,
                         replyText = replyToSend,
                         originalMessage = message,
+                        packageName = packageName,
+                        shortcutId = getShortcutId(sbn),
+                        sbnTag = sbn.tag,
+                        sbnId = sbn.id,
                         onBeforeSend = {
                             ConversationHistory.addMessage(sender, "assistant", replyToSend)
                         },
@@ -386,7 +419,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                     notificationKey = sbn.key,
                     packageName = packageName,
                     isGroupChat = isGroupChat,
-                    delayMs = batchWindowMs
+                    delayMs = batchWindowMs,
+                    shortcutId = getShortcutId(sbn),
+                    sbnTag = sbn.tag,
+                    sbnId = sbn.id,
                 ) { batch ->
                     Log.d(TAG, "Batch ready for ${batch.sender}: ${batch.messages.size} messages")
                     sendBatchedAiReply(batch, modelType)
@@ -419,6 +455,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                 originalMessage = message,
                 isAiReply = false,
                 aiModelType = "",
+                packageName = packageName,
+                shortcutId = getShortcutId(sbn),
+                sbnTag = sbn.tag,
+                sbnId = sbn.id,
             )
             return
         }
@@ -429,6 +469,10 @@ class AppNotificationListenerService : NotificationListenerService() {
             sender = sender,
             replyText = replyText,
             originalMessage = message,
+            packageName = packageName,
+            shortcutId = getShortcutId(sbn),
+            sbnTag = sbn.tag,
+            sbnId = sbn.id,
         )
     }
 
@@ -466,20 +510,40 @@ class AppNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    fun sendReply(key: String, sender: String, replyText: String, isAiReply: Boolean = false, aiModelType: String = "") {
+    fun sendReply(
+        key: String,
+        sender: String,
+        replyText: String,
+        isAiReply: Boolean = false,
+        aiModelType: String = "",
+        expectedPackageName: String? = null,
+        expectedShortcutId: String? = null,
+        expectedTag: String? = null,
+        expectedId: Int? = null,
+    ) {
         try {
             var sbn = activeNotifications?.find { it.key == key }
 
-            // If the original notification is gone or has no reply action, find one that does
+            // Guard: an exact key match implicitly belongs to the right package,
+            // but if the caller supplied the original package, enforce it so a
+            // recycled key can never leak a reply into another app.
+            if (sbn != null && expectedPackageName != null && sbn.packageName != expectedPackageName) {
+                Log.w(TAG, "Refusing to reply: notification $key is from ${sbn.packageName} but expected $expectedPackageName")
+                sbn = null
+            }
+
+            // If the original notification is gone or has no reply action, only
+            // fall back to the SAME conversation (same package + stable identity).
+            // Never fall back by display-name matching — that can hit the wrong chat.
             if (sbn == null || !hasReplyAction(sbn)) {
-                Log.d(TAG, "Notification $key is missing or has no reply action, searching for active notification with reply action for sender '$sender'...")
-                sbn = findNotificationWithReplyAction(sender)
+                Log.d(TAG, "Notification $key is missing or has no reply action, verifying same-conversation fallback for sender '$sender'...")
+                sbn = findSameConversationNotification(key, expectedPackageName, expectedShortcutId, expectedTag, expectedId)
             }
 
             if (sbn == null) {
-                Log.e(TAG, "No active notification found for key: $key, sender: $sender")
+                Log.w(TAG, "Refusing to reply: original conversation for key=$key sender='$sender' can no longer be confirmed (gone or identity mismatch). Skipping send.")
                 mainHandler.post {
-                    methodChannel?.invokeMethod("onReplyFailed", "Notification not found")
+                    methodChannel?.invokeMethod("onReplyFailed", "Original notification no longer active — skipped to avoid wrong recipient")
                 }
                 return
             }
@@ -593,6 +657,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                     originalMessage = batchOriginalMessage,
                     isAiReply = true,
                     aiModelType = effectiveModelType,
+                    packageName = batch.packageName,
+                    shortcutId = batch.latestShortcutId,
+                    sbnTag = batch.latestTag,
+                    sbnId = batch.latestId,
                 )
             } else {
                 // Apply the user's configured reply delay on top of the batch window
@@ -603,6 +671,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                     isAiReply = true,
                     aiModelType = effectiveModelType,
                     originalMessage = batchOriginalMessage,
+                    packageName = batch.packageName,
+                    shortcutId = batch.latestShortcutId,
+                    sbnTag = batch.latestTag,
+                    sbnId = batch.latestId,
                 )
             }
         }
@@ -810,21 +882,124 @@ class AppNotificationListenerService : NotificationListenerService() {
     }
 
     /**
-     * Find any active notification from the same sender that has a direct reply action.
-     * Returns null if none found.
+     * Resolve stable conversation identity for [notificationKey], preferring the
+     * caller-supplied values captured when the message arrived. Falls back to the
+     * currently-posted notification with the same key (best-effort — may be null
+     * if it was already dismissed).
+     *
+     * Returns Quadruple(packageName, shortcutId, tag, id).
      */
-    private fun findNotificationWithReplyAction(sender: String): StatusBarNotification? {
-        val targetSender = sender.trim().lowercase()
-        return activeNotifications?.filter { sbn ->
+    private fun resolveConversationIdentity(
+        notificationKey: String,
+        packageName: String?,
+        shortcutId: String?,
+        tag: String?,
+        id: Int?,
+    ): Quadruple<String?, String?, String?, Int?> {
+        if (packageName != null) {
+            return Quadruple(packageName, shortcutId, tag, id)
+        }
+        return try {
+            val current = activeNotifications?.find { it.key == notificationKey }
+            if (current != null) {
+                Quadruple(current.packageName, getShortcutId(current), current.tag, current.id)
+            } else {
+                Quadruple(null, shortcutId, tag, id)
+            }
+        } catch (_: Exception) {
+            Quadruple(packageName, shortcutId, tag, id)
+        }
+    }
+
+    private fun getShortcutId(sbn: StatusBarNotification): String? {
+        return try {
+            sbn.notification?.shortcutId
+                ?: sbn.notification?.extras?.getString("android.shortcutId")
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun sameConversation(a: StatusBarNotification, shortcutId: String?, tag: String?, id: Int?): Boolean {
+        if (!shortcutId.isNullOrEmpty()) {
+            val candidateShortcut = getShortcutId(a)
+            if (candidateShortcut != null && candidateShortcut == shortcutId) return true
+        }
+        // tag+id is only stable when tag is non-null. A null tag with a reused
+        // integer id (common: id=0/1 for every chat) must NOT count as a match,
+        // otherwise two different chats in the same app could look identical.
+        if (tag != null && id != null && tag == a.tag && id == a.id) return true
+        return false
+    }
+
+    /**
+     * Same-conversation fallback: only returns a notification that can be confirmed
+     * as the original conversation.
+     *
+     * - Exact [originalKey] match (implies same package) is preferred.
+     * - Otherwise only notifications from [expectedPackageName] whose stable identity
+     *   (shortcut ID, or tag+id) matches the original are considered.
+     * - Display-name / sender matching is deliberately NOT used: two contacts can
+     *   share a name, and a substring match can route a reply to the wrong chat.
+     *
+     * Returns null when the original conversation can't be confirmed — callers must
+     * then skip sending and log it instead of guessing.
+     */
+    private fun findSameConversationNotification(
+        originalKey: String,
+        expectedPackageName: String?,
+        expectedShortcutId: String?,
+        expectedTag: String?,
+        expectedId: Int?,
+    ): StatusBarNotification? {
+        val active = activeNotifications ?: return null
+
+        // Exact key still present (and still replyable)? Use it. If we know the
+        // expected package, enforce it as well.
+        active.firstOrNull { it.key == originalKey && hasReplyAction(it) }?.let { exact ->
+            if (expectedPackageName == null || exact.packageName == expectedPackageName) {
+                return exact
+            }
+            Log.w(TAG, "Exact key match ${exact.key} is from ${exact.packageName}, expected $expectedPackageName — ignoring")
+        }
+
+        // Without the original package we cannot safely narrow the search.
+        // Do NOT fall back to sender-name search — treat as unconfirmed.
+        if (expectedPackageName == null) {
+            Log.w(TAG, "Cannot confirm original conversation for key=$originalKey without package — skipping fallback")
+            return null
+        }
+
+        val samePackage = active.filter { sbn ->
+            if (sbn.packageName != expectedPackageName) return@filter false
             if (sbn.packageName !in supportedPackages) return@filter false
             if (!hasReplyAction(sbn)) return@filter false
-            val title = sbn.notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val normalizedTitle = normalizeSenderName(title, sbn.packageName).lowercase()
-            normalizedTitle == targetSender ||
-                normalizedTitle.contains(targetSender) ||
-                targetSender.contains(normalizedTitle)
-        }?.lastOrNull()
+            true
+        }
+        if (samePackage.isEmpty()) {
+            Log.w(TAG, "No active replyable notification from $expectedPackageName — skipping send for key=$originalKey")
+            return null
+        }
+
+        // Stable identity match only (shortcut ID preferred, then non-null tag+id).
+        // An id alone (null tag) is not stable — ids are commonly reused across chats.
+        val hasStableIdentity = !expectedShortcutId.isNullOrEmpty() || expectedTag != null
+        if (!hasStableIdentity) {
+            Log.w(TAG, "No stable conversation identity for key=$originalKey — refusing to guess by sender name")
+            return null
+        }
+
+        val match = samePackage.lastOrNull { sbn ->
+            sameConversation(sbn, expectedShortcutId, expectedTag, expectedId)
+        }
+        if (match == null) {
+            Log.w(TAG, "Original conversation (key=$originalKey, shortcut=$expectedShortcutId, tag=$expectedTag id=$expectedId) no longer active in $expectedPackageName — skipping send")
+        }
+        return match
     }
+
+    // Simple 4-tuple — avoids pulling in extra dependencies for an internal helper.
+    private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
     private fun isGroupChat(notification: Notification) =
         notification.extras.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, false)
@@ -935,6 +1110,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                             isAiReply = pending.isAiReply,
                             aiModelType = pending.aiModelType,
                             originalMessage = pending.originalMessage,
+                            packageName = pending.packageName,
+                            shortcutId = pending.shortcutId,
+                            sbnTag = pending.sbnTag,
+                            sbnId = pending.sbnId,
                         )
                     }
                     ACTION_DENY -> {
@@ -972,14 +1151,23 @@ class AppNotificationListenerService : NotificationListenerService() {
         originalMessage: String,
         isAiReply: Boolean,
         aiModelType: String,
+        packageName: String,
+        shortcutId: String? = null,
+        sbnTag: String? = null,
+        sbnId: Int? = null,
     ) {
         val confirmId = UUID.randomUUID().toString()
         val notifId = CONFIRM_NOTIFICATION_ID_BASE + confirmId.hashCode()
 
-        // Store the pending reply
+        // Store the pending reply, including stable conversation identity so the
+        // later send (approve or 15s timeout) can verify the same conversation.
         pendingReplies[confirmId] = PendingReply(
             confirmId = confirmId,
             notificationKey = notificationKey,
+            packageName = packageName,
+            shortcutId = shortcutId,
+            sbnTag = sbnTag,
+            sbnId = sbnId,
             sender = sender,
             replyText = replyText,
             originalMessage = originalMessage,
@@ -1061,6 +1249,8 @@ class AppNotificationListenerService : NotificationListenerService() {
         // Auto-send after timeout if not confirmed. Route through scheduleDelayedReply so the
         // configured reply delay is still applied and the visible countdown reflects the real
         // send time — the reply must never go out before the timer the user sees ends.
+        // Unchanged behaviour: the 15s timeout still auto-sends; the send itself is now
+        // guarded by same-conversation verification (skips instead of wrong-recipient).
         mainHandler.postDelayed({
             val pending = pendingReplies.remove(confirmId)
             if (pending != null) {
@@ -1073,6 +1263,10 @@ class AppNotificationListenerService : NotificationListenerService() {
                     isAiReply = pending.isAiReply,
                     aiModelType = pending.aiModelType,
                     originalMessage = pending.originalMessage,
+                    packageName = pending.packageName,
+                    shortcutId = pending.shortcutId,
+                    sbnTag = pending.sbnTag,
+                    sbnId = pending.sbnId,
                 )
             }
         }, CONFIRM_TIMEOUT_MS)

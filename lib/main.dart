@@ -48,8 +48,10 @@ class MyApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(appSettingsProvider);
-    final isDark = settings.darkMode;
+    // Only rebuild MaterialApp on dark-mode changes. Watching the whole
+    // settings object rebuilt the entire app (including SettingsScreen's
+    // ListView) on every toggle, resetting scroll state and causing jumps.
+    final isDark = ref.watch(appSettingsProvider.select((s) => s.darkMode));
     const primaryColor = Color(0xFF4F46E5); // Modern Deep Indigo
 
     return MaterialApp(

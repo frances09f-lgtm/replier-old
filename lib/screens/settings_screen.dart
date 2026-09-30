@@ -6,18 +6,55 @@ import '../models/app_settings.dart';
 import '../providers/settings_provider.dart';
 
 /// Screen for app settings
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late final ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Persistent controller + PageStorageKey below keeps scroll offset stable
+    // across provider rebuilds (permissions / model status load async after
+    // first frame), which previously clamped the offset and looked like a
+    // "glitch" when flinging from bottom to top.
+    _scrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final permissions = ref.watch(permissionStatusProvider);
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    // Evaluate once per build so conditional sections above/below can't
+    // appear/disappear mid-scroll and shift the scroll extent (the main
+    // "jump when flinging from bottom to top" cause).
+    final nowMillis = DateTime.now().millisecondsSinceEpoch;
+    final showBusyCard = settings.busyModeEnabled &&
+        settings.busyUntilTimestamp > nowMillis;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        key: const PageStorageKey<String>('settings_list'),
+        controller: _scrollController,
+        // Pre-layout offscreen items so a fast fling from bottom to top
+        // doesn't jank while cards are (re)built. Keep-alives stay enabled
+        // (default) so model tiles keep their state while scrolling.
+        cacheExtent: 1200,
+        physics: const ClampingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomPadding + 24),
         children: [
           // Permissions section
           Text(
@@ -186,7 +223,7 @@ class SettingsScreen extends ConsumerWidget {
           ],
 
           // Busy mode indicator
-          if (settings.busyModeEnabled && settings.busyUntilTimestamp > DateTime.now().millisecondsSinceEpoch) ...[
+          if (showBusyCard) ...[
             Card(
               color: Colors.blue[50],
               child: ListTile(
@@ -298,6 +335,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   RadioListTile<String>(
                     value: 'phi_local',
@@ -316,11 +354,17 @@ class SettingsScreen extends ConsumerWidget {
                       }
                     },
                   ),
-                  if (settings.aiModelType == 'phi_local' || settings.fallbackToLocalModel)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Column(
-                        children: [
+                  ClipRect(
+                    child: AnimatedSize(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeInOut,
+                      alignment: Alignment.topCenter,
+                      child: (settings.aiModelType == 'phi_local' || settings.fallbackToLocalModel)
+                          ? Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
                           _ModelRadioTile(
                             value: 'llama_3_2_1b',
                             groupValue: settings.selectedLocalModel,
@@ -351,7 +395,10 @@ class SettingsScreen extends ConsumerWidget {
                           const SizedBox(height: 8),
                         ],
                       ),
+                    )
+                          : const SizedBox.shrink(),
                     ),
+                  ),
                 ],
               ),
             ),
@@ -457,39 +504,54 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 24),
 
           // Warning section
-          Container(
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFBEB), // Amber-50
+          // NOTE: previously used BoxDecoration(border: Border(left: ...)) +
+          // borderRadius together, which Flutter can't clip correctly and
+          // flickers/repaints while scrolling at the end of the page.
+          // Use ClipRRect + accent bar instead for a stable paint.
+          RepaintBoundary(
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              border: const Border(
-                left: BorderSide(color: Color(0xFFF59E0B), width: 4),
-              ),
-            ),
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 22),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Important Notice',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF92400E),
+              child: Container(
+                color: const Color(0xFFFFFBEB), // Amber-50
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(width: 4, color: const Color(0xFFF59E0B)),
+                      const Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.warning_amber_rounded, color: Color(0xFFD97706), size: 22),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Important Notice',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF92400E),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: 8),
+                              Text(
+                                'Automated replying to WhatsApp or Instagram may violate their Terms of Service. '
+                                'This app uses official Android notification APIs where possible. '
+                                'Use at your own risk and with caution.',
+                                style: TextStyle(color: Color(0xFFB45309), fontSize: 12, height: 1.4),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Automated replying to WhatsApp or Instagram may violate their Terms of Service. '
-                  'This app uses official Android notification APIs where possible. '
-                  'Use at your own risk and with caution.',
-                  style: TextStyle(color: Color(0xFFB45309), fontSize: 12, height: 1.4),
-                ),
-              ],
+              ),
             ),
           ),
         ],
@@ -619,6 +681,7 @@ class SettingsScreen extends ConsumerWidget {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           RadioListTile<String>(
             value: engineType,
@@ -651,68 +714,80 @@ class SettingsScreen extends ConsumerWidget {
               }
             },
           ),
-          if (isSelected)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Divider(height: 1),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        hasKey ? Icons.check_circle : Icons.warning_amber_rounded,
-                        size: 16,
-                        color: hasKey ? Colors.green : Colors.orange,
+          // Animated expansion instead of instant insert/remove: an abrupt
+          // height change while scrolled at the bottom shifts the scroll
+          // extent and looks like a glitch when flinging back to the top.
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: isSelected
+                  ? Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 1),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                hasKey ? Icons.check_circle : Icons.warning_amber_rounded,
+                                size: 16,
+                                color: hasKey ? Colors.green : Colors.orange,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                hasKey
+                                    ? 'API Key Configured'
+                                    : (settings.fallbackToLocalModel
+                                        ? 'API Key Missing (Local Fallback Active)'
+                                        : 'API Key Missing'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: hasKey
+                                      ? Colors.green[800]
+                                      : (settings.fallbackToLocalModel
+                                          ? Colors.blue[800]
+                                          : Colors.orange[800]),
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                'Model: $effectiveModel',
+                                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                _showApiConfigDialog(
+                                  context: context,
+                                  title: title,
+                                  apiKey: apiKey,
+                                  currentModel: effectiveModel,
+                                  availableModels: availableModels,
+                                  keyUrl: keyUrl,
+                                  onSave: onSave,
+                                );
+                              },
+                              icon: const Icon(Icons.key, size: 16),
+                              label: Text(hasKey ? 'Change API Key / Model' : 'Set API Key & Model'),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        hasKey
-                            ? 'API Key Configured'
-                            : (settings.fallbackToLocalModel
-                                ? 'API Key Missing (Local Fallback Active)'
-                                : 'API Key Missing'),
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                          color: hasKey
-                              ? Colors.green[800]
-                              : (settings.fallbackToLocalModel
-                                  ? Colors.blue[800]
-                                  : Colors.orange[800]),
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        'Model: $effectiveModel',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        _showApiConfigDialog(
-                          context: context,
-                          title: title,
-                          apiKey: apiKey,
-                          currentModel: effectiveModel,
-                          availableModels: availableModels,
-                          keyUrl: keyUrl,
-                          onSave: onSave,
-                        );
-                      },
-                      icon: const Icon(Icons.key, size: 16),
-                      label: Text(hasKey ? 'Change API Key / Model' : 'Set API Key & Model'),
-                    ),
-                  ),
-                ],
-              ),
+                    )
+                  : const SizedBox.shrink(),
             ),
+          ),
         ],
       ),
     );
@@ -1282,27 +1357,63 @@ class _ModelRadioTile extends StatefulWidget {
   State<_ModelRadioTile> createState() => _ModelRadioTileState();
 }
 
-class _ModelRadioTileState extends State<_ModelRadioTile> {
+class _ModelRadioTileState extends State<_ModelRadioTile>
+    with AutomaticKeepAliveClientMixin {
+  // Cache availability per model so scrolling (which disposes/recreates
+  // offscreen tiles) doesn't re-hit the platform channel and cause a
+  // height jump mid-fling — the main "glitch when scrolling to top".
+  static final Map<String, bool> _statusCache = {};
+
+  @override
+  bool get wantKeepAlive => true;
+
   bool? _available;
   bool _downloading = false;
   int _progress = 0;
+  // Start in checking state so the first frame already reserves the loading
+  // layout instead of jumping: content -> spinner -> content.
   bool _checking = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.modelId != null) _checkStatus();
+    if (widget.modelId != null) {
+      final cached = _statusCache[widget.modelId];
+      if (cached != null) {
+        _available = cached;
+      } else {
+        _checking = true;
+        _checkStatus();
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _ModelRadioTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.modelId != widget.modelId && widget.modelId != null) {
+      final cached = _statusCache[widget.modelId];
+      if (cached != null) {
+        if (mounted) setState(() => _available = cached);
+      } else {
+        _checkStatus();
+      }
+    }
   }
 
   Future<void> _checkStatus() async {
-    setState(() => _checking = true);
+    if (mounted) setState(() => _checking = true);
     try {
       const channel = MethodChannel('com.example.auto_reply_assistant/native');
       final result = await channel.invokeMethod<Map>('getPhiStatus', {'modelId': widget.modelId});
       if (result != null && mounted) {
-        setState(() => _available = result['available'] == true);
+        final available = result['available'] == true;
+        if (widget.modelId != null) _statusCache[widget.modelId!] = available;
+        setState(() => _available = available);
       }
-    } catch (_) {}
+    } catch (_) {
+      // Leave previous/cached value; don't collapse the tile on error.
+    }
     if (mounted) setState(() => _checking = false);
   }
 
@@ -1336,12 +1447,30 @@ class _ModelRadioTileState extends State<_ModelRadioTile> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final isLocalModel = widget.modelId != null;
     final isAvailable = _available ?? false;
     final isThisSelected = isLocalModel && widget.value == widget.groupValue && widget.modelId == widget.selectedModelId;
 
+    // Fixed-size trailing so async status load (spinner -> icon) can't
+    // shift the ListTile layout while scrolled at the bottom.
+    final Widget trailing = SizedBox(
+      width: 28,
+      height: 28,
+      child: Center(
+        child: !isLocalModel
+            ? Icon(Icons.phone_android, color: Colors.green[700])
+            : _checking && _available == null
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : isAvailable
+                    ? Icon(Icons.check_circle, color: isThisSelected ? Colors.green : Colors.grey)
+                    : const Icon(Icons.download, color: Colors.orange),
+      ),
+    );
+
     return Card(
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1356,71 +1485,79 @@ class _ModelRadioTileState extends State<_ModelRadioTile> {
                 : isLocalModel && !isAvailable
                     ? '${widget.subtitle} (tap download)'
                     : widget.subtitle),
-            trailing: isLocalModel
-                ? (_checking
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : isAvailable
-                        ? Icon(Icons.check_circle, color: isThisSelected ? Colors.green : Colors.grey)
-                        : const Icon(Icons.download, color: Colors.orange))
-                : Icon(Icons.phone_android, color: Colors.green[700]),
+            trailing: trailing,
             onTap: isLocalModel && !isAvailable ? null : () => widget.onTap(),
           ),
-          if (_downloading)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  LinearProgressIndicator(value: _progress / 100.0, backgroundColor: Colors.grey[300]),
-                  const SizedBox(height: 4),
-                  Text('Downloading... $_progress% — Do not close the app', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                ],
-              ),
-            ),
-          if (!_downloading && isLocalModel && !isAvailable)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _download,
-                  icon: const Icon(Icons.download, size: 18),
-                  label: Text('Download ${widget.title}'),
-                ),
-              ),
-            ),
-          if (!_downloading && isLocalModel && isAvailable)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      isThisSelected ? 'Currently active' : 'Downloaded',
-                      style: TextStyle(fontSize: 12, color: isThisSelected ? Colors.green[700] : Colors.grey[600]),
-                    ),
-                  ),
-                  if (!isThisSelected)
-                    TextButton(
-                      onPressed: () async {
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: Text('Delete ${widget.title}?'),
-                            content: const Text('You can re-download later.'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                              TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+          // Animate bottom-area height changes (download button <->
+          // progress <-> status) instead of instant jumps that shift the
+          // scroll extent mid-scroll.
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: _downloading
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          LinearProgressIndicator(value: _progress / 100.0, backgroundColor: Colors.grey[300]),
+                          const SizedBox(height: 4),
+                          Text('Downloading... $_progress% — Do not close the app', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                        ],
+                      ),
+                    )
+                  : (!isLocalModel || isAvailable)
+                      ? Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  !isLocalModel
+                                      ? 'Ready'
+                                      : isThisSelected
+                                          ? 'Currently active'
+                                          : 'Downloaded',
+                                  style: TextStyle(fontSize: 12, color: isThisSelected ? Colors.green[700] : Colors.grey[600]),
+                                ),
+                              ),
+                              if (isLocalModel && isAvailable && !isThisSelected)
+                                TextButton(
+                                  onPressed: () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: Text('Delete ${widget.title}?'),
+                                        content: const Text('You can re-download later.'),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) _delete();
+                                  },
+                                  child: const Text('Delete', style: TextStyle(color: Colors.red, fontSize: 12)),
+                                ),
                             ],
                           ),
-                        );
-                        if (confirm == true) _delete();
-                      },
-                      child: const Text('Delete', style: TextStyle(color: Colors.red, fontSize: 12)),
-                    ),
-                ],
-              ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _checking ? null : _download,
+                              icon: const Icon(Icons.download, size: 18),
+                              label: Text('Download ${widget.title}'),
+                            ),
+                          ),
+                        ),
             ),
+          ),
         ],
       ),
     );
@@ -1450,9 +1587,18 @@ class _PermissionTile extends StatelessWidget {
         ),
         title: Text(title),
         subtitle: Text(subtitle),
-        trailing: isGranted
-            ? const Text('Granted', style: TextStyle(color: Colors.green))
-            : ElevatedButton(onPressed: onGrant, child: const Text('Grant')),
+        // Fixed-width trailing so the async permission check
+        // (Grant button <-> Granted label) can't change row layout and
+        // shift scroll extent while the user is at the bottom.
+        trailing: SizedBox(
+          width: 88,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: isGranted
+                ? const Text('Granted', style: TextStyle(color: Colors.green))
+                : ElevatedButton(onPressed: onGrant, child: const Text('Grant')),
+          ),
+        ),
       ),
     );
   }
